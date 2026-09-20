@@ -12,7 +12,7 @@ from estate.config import ROOT, db_path, service_key
 from estate.collection_ui import render_collection, render_archive
 from estate.db import connect, initialize
 from estate.dashboard import render_dashboard, render_apartment_detail
-from estate.geocode import geocode_pending
+from estate.geocode import geocode_pending, load_seed_geocodes
 from estate.listings import import_rows, parse_payload
 from estate.maps import DEFAULT_REGION, REGION_VIEWS, housing_deck
 from estate.scheduler import ensure_defaults, targets
@@ -98,6 +98,7 @@ st.sidebar.title("집의 흐름")
 st.sidebar.caption("KOREA HOUSING OBSERVATORY")
 path = db_path()
 initialize(path)
+load_seed_geocodes(path)
 ensure_defaults(path)
 
 

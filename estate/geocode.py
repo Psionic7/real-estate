@@ -1,5 +1,35 @@
+import csv
+from pathlib import Path
+
 from estate.db import connect, now_iso
 from estate.http import DataSourceError, get, session
+
+
+DEFAULT_SEED = Path(__file__).resolve().parents[1] / "data" / "geocodes.csv"
+
+
+def load_seed_geocodes(path, seed_path=DEFAULT_SEED):
+    """Merge packaged apartment coordinates into an existing runtime database."""
+    seed_path = Path(seed_path)
+    if not seed_path.exists():
+        return 0
+    rows = []
+    with seed_path.open(encoding="utf-8-sig", newline="") as stream:
+        for row in csv.DictReader(stream):
+            try:
+                lat, lon = float(row["latitude"]), float(row["longitude"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if row.get("address") and 32 <= lat <= 39.5 and 124 <= lon <= 132:
+                rows.append((row["address"], lat, lon, row.get("provider") or "seed",
+                             row.get("updated_at") or now_iso()))
+    with connect(path) as conn:
+        before = conn.total_changes
+        conn.executemany("""
+            INSERT INTO geocodes(address,latitude,longitude,provider,updated_at)
+            VALUES(?,?,?,?,?) ON CONFLICT(address) DO NOTHING
+        """, rows)
+        return conn.total_changes - before
 
 
 def geocode_pending(path, key, limit=100, region=None):

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from estate.db import connect, initialize, replace_trade_partition
-from estate.geocode import geocode_pending
+from estate.geocode import geocode_pending, load_seed_geocodes
 from estate.maps import housing_deck
 from estate.molit import normalize
 
@@ -45,3 +45,16 @@ def test_geocode_selected_region_and_cache(tmp_path, monkeypatch):
     assert client.get.call_count == 1
     with connect(path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM geocodes").fetchone()[0] == 1
+
+
+def test_packaged_geocodes_merge_into_existing_database(tmp_path):
+    path = tmp_path / "estate.sqlite3"
+    seed = tmp_path / "geocodes.csv"
+    initialize(path)
+    seed.write_text(
+        "address,latitude,longitude,provider,updated_at\n"
+        "경기도 용인시 수지구 풍덕천동 1,37.32,127.09,openstreetmap,2026-09-20\n",
+        encoding="utf-8-sig",
+    )
+    assert load_seed_geocodes(path, seed) == 1
+    assert load_seed_geocodes(path, seed) == 0
