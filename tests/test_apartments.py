@@ -28,7 +28,7 @@ def test_summary_keeps_unlocated_trades_and_latest_day_median():
     points = map_price_points(trades, {"41465": (37.32, 127.09, 12)})
     assert points[0]["count"] == 3
     assert points[0]["average_price"] == 10
-    assert "10.00억" in points[0]["label"]
+    assert points[0]["label"] == "10.00"
     assert "계산 기간 2026-06~2026-08" in points[0]["summary"]
     deck = housing_deck(points, "41465")
     assert deck.layers[-1].id == "apartment-labels"

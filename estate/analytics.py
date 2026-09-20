@@ -180,7 +180,7 @@ def map_price_points(trades, region_views):
             kind="아파트", lat=float(located["lat"].median()), lon=float(located["lon"].median()),
             count=count, average_price=average, period=period, period_kind=kind,
             color=[8, 127, 140, 225], radius=85 + min(count, 30) * 7,
-            label=f"{apartment}\n{average:.2f}억",
+            label=f"{average:.2f}",
             summary=f"{kind} 평균 {average:.2f}억원 · {count}건\n계산 기간 {period}"))
     regions_with_apartments = {p["region_code"] for p in points}
     for region_code, group in trades.groupby("region_code"):
@@ -197,7 +197,7 @@ def map_price_points(trades, region_views):
         points.append(dict(region_code=region_code, dong="", address="", apartment="지역 전체 요약",
             kind="지역 요약", lat=lat, lon=lon, count=count, average_price=average,
             period=period, period_kind=kind, color=[38, 72, 120, 235], radius=650,
-            label=f"지역 평균\n{average:.2f}억",
+            label=f"{average:.2f}",
             summary=f"{kind} 평균 {average:.2f}억원 · {count:,}건\n계산 기간 {period}"))
     return points
 
