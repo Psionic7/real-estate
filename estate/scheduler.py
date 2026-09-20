@@ -3,8 +3,9 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-from estate.config import api_endpoint, service_key
+from estate.config import api_endpoint, kakao_key, service_key
 from estate.db import connect, now_iso
+from estate.geocode import geocode_pending, geocode_pending_arcgis
 from estate.molit import collect, months_between, validate_scope
 
 KST = timezone(timedelta(hours=9))
@@ -160,8 +161,21 @@ def execute_job(path, job, collector=collect):
             with connect(path) as conn:
                 conn.execute("UPDATE collection_jobs SET completed_months=?,row_count=row_count+? WHERE id=?",
                              (index + 1, count, job["id"]))
+        message = ""
+        coordinate_key = kakao_key()
+        try:
+            matched = 0
+            if coordinate_key:
+                matched, unresolved = geocode_pending(path, coordinate_key, limit=1_000_000,
+                                                       region=job["region_code"])
+            public_matched, unresolved = geocode_pending_arcgis(path, limit=1_000_000,
+                                                                region=job["region_code"])
+            message = f"좌표 자동 보강 {matched + public_matched}건 · 미확정 {unresolved}건"
+        except Exception:
+            message = "실거래 수집 완료 · 좌표 자동 보강 실패"
         with connect(path) as conn:
-            conn.execute("UPDATE collection_jobs SET status='success',finished_at=?,current_month='' WHERE id=?", (now_iso(), job["id"]))
+            conn.execute("UPDATE collection_jobs SET status='success',finished_at=?,current_month='',message=? WHERE id=?",
+                         (now_iso(), message, job["id"]))
     except Exception:
         # Do not leak keys, request URLs, or untrusted provider errors into job logs.
         with connect(path) as conn:

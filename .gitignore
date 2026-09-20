@@ -227,6 +227,7 @@ data/estate.sqlite3
 data/estate.sqlite3-shm
 data/estate.sqlite3-wal
 data/*.worker.lock
+data/geocode_failures.json
 
 
 # common

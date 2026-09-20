@@ -94,12 +94,20 @@ def test_duplicate_queue_scope_change_and_resume_progress(scheduled_db, monkeypa
         conn.execute("UPDATE collection_jobs SET completed_months=1,row_count=10 WHERE id=?", (job["id"],))
     job["completed_months"] = 1
     monkeypatch.setattr("estate.scheduler.service_key", lambda: "private-key")
+    monkeypatch.setattr("estate.scheduler.kakao_key", lambda: "coordinate-key")
+    geocoder = Mock(return_value=(2, 0))
+    monkeypatch.setattr("estate.scheduler.geocode_pending", geocoder)
+    public_geocoder = Mock(return_value=(0, 0))
+    monkeypatch.setattr("estate.scheduler.geocode_pending_arcgis", public_geocoder)
     collector = Mock(return_value=7)
     execute_job(scheduled_db, job, collector)
     assert collector.call_count == 1 and collector.call_args.args[3] == "202602"
+    geocoder.assert_called_once_with(scheduled_db, "coordinate-key", limit=1_000_000, region="41465")
+    public_geocoder.assert_called_once_with(scheduled_db, limit=1_000_000, region="41465")
     with connect(scheduled_db) as conn:
         saved = conn.execute("SELECT * FROM collection_jobs WHERE id=?", (job["id"],)).fetchone()
         assert saved["status"] == "success" and saved["row_count"] == 17
+        assert "좌표 자동 보강 2건" in saved["message"]
 
 
 def test_job_failure_keeps_month_progress_and_masks_error(scheduled_db, monkeypatch):

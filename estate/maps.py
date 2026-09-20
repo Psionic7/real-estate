@@ -25,38 +25,33 @@ def housing_deck(points, region, show_labels=True):
     else:
         lat, lon, zoom = REGION_VIEWS.get(region, (36.3, 127.8, 7))
     shown = points[:5000]
-    listing_points = [p for p in shown if p.get("listing_count", 0)]
     layers = []
-    if listing_points:
-        layers.append(pdk.Layer(
-            "ScatterplotLayer", data=listing_points, id="active-listings",
-            get_position="[lon, lat]", filled=False, stroked=True,
-            get_radius="radius + 45", radius_min_pixels=22, radius_max_pixels=46,
-            get_line_color=[226, 145, 55, 240], line_width_min_pixels=4,
-            pickable=True,
-        ))
-    layers.append(pdk.Layer(
-        "ScatterplotLayer", data=shown, id="apartments",
-        get_position="[lon, lat]", get_fill_color="color", get_radius="radius",
-        radius_min_pixels=16, radius_max_pixels=38, stroked=True,
-        get_line_color=[255, 255, 255, 230], line_width_min_pixels=2,
-        pickable=True, auto_highlight=True,
-    ))
     if show_labels:
-        labels = sorted((p for p in shown if "label" in p),
-                        key=lambda p: p["count"], reverse=True)[:40]
-        if labels:
+        if shown:
             layers.append(pdk.Layer(
-                "TextLayer", id="apartment-labels", data=labels,
-                get_position="[lon, lat]", get_text="label", get_size=13,
-                get_color=[23, 43, 77], get_pixel_offset=[0, -30],
-                get_text_anchor="'middle'", get_alignment_baseline="'bottom'",
-                background=True, get_background_color=[255, 255, 255, 230],
-                background_padding=[5, 3], font_family="'Arial'", pickable=True,
+                "TextLayer", id="apartment-cards", data=shown,
+                get_position="[lon, lat]", get_text="card_label", get_size=13,
+                get_color=[255, 255, 255, 255], get_background_color="card_color",
+                get_text_anchor="'middle'", get_alignment_baseline="'center'",
+                background=True, background_padding=[8, 6], billboard=True,
+                font_family="'Malgun Gothic'", font_weight=700, line_height=1.22,
+                character_set="'auto'",
+                pickable=True, auto_highlight=True,
+                extensions=[{"@@type": "CollisionFilterExtension"}], collision_enabled=True,
+                collision_group="apartment-cards", get_collision_priority="priority",
+                collision_test_props={"sizeScale": 1.35},
             ))
+    elif shown:
+        layers.append(pdk.Layer(
+            "TextLayer", id="apartment-pins", data=shown,
+            get_position="[lon, lat]", get_text="'◆'", get_size=18,
+            get_color="card_color", get_text_anchor="'middle'",
+            get_alignment_baseline="'center'", pickable=True,
+        ))
     return pdk.Deck(
         map_provider="carto", map_style="road",
         initial_view_state=pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom),
         layers=layers,
-        tooltip={"text": "{apartment}\n{summary}\n{address}"},
+        tooltip={"html": "<b>{apartment}</b><br>{area_text}<br>{summary}<br><span>{address}</span>",
+                 "style": {"backgroundColor": "#10233e", "color": "white"}},
     )

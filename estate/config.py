@@ -63,6 +63,10 @@ def service_key():
     return read_setting("MOLIT_SERVICE_KEY", ["api-key.txt", "일반인증키.txt"])
 
 
+def kakao_key():
+    return read_setting("KAKAO_REST_API_KEY", [])
+
+
 def api_endpoint():
     value = read_setting("MOLIT_ENDPOINT", ["end-point.txt", "엔드포인트.txt"],
                          "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade")

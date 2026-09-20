@@ -9,12 +9,12 @@ import streamlit as st
 from estate.analytics import (active_listings, apartment_stats, apartment_sample, comparable_gap, export_csv, filter_common,
                               latest_deal_date, load_data, load_map_trades, map_price_points,
                               within_radius)
-from estate.config import ROOT, db_path, service_key
+from estate.config import ROOT, db_path, kakao_key, service_key
 from estate.collection_ui import render_collection, render_archive
 from estate.db import connect, initialize
 from estate.dashboard import render_dashboard, render_watchlist
 from estate.favorites import apartment_id, apartment_identity, filter_favorites, parse_favorites
-from estate.geocode import geocode_pending, load_seed_geocodes
+from estate.geocode import geocode_pending, geocode_pending_arcgis, load_seed_geocodes
 from estate.listings import import_rows, parse_payload
 from estate.maps import DEFAULT_REGION, REGION_VIEWS, housing_deck
 from estate.scheduler import ensure_defaults, targets
@@ -52,10 +52,20 @@ def data_management(path, selected_region):
             FROM trades GROUP BY region_code,deal_month ORDER BY deal_month DESC,region_code""", conn)
         runs = pd.read_sql_query("SELECT source,scope,started_at,finished_at,status,row_count,message "
                                  "FROM collection_runs ORDER BY id DESC LIMIT 30", conn)
-    a, b, c = st.columns(3)
+        coordinate_quality = conn.execute("""WITH addresses AS (
+            SELECT DISTINCT address FROM trades WHERE cancelled=0 AND address!=''
+            UNION SELECT DISTINCT address FROM listing_snapshots WHERE address!=''
+        ) SELECT COUNT(*) total,COUNT(g.address) located FROM addresses a LEFT JOIN geocodes g USING(address)""").fetchone()
+    total_addresses, located_addresses = coordinate_quality
+    missing_addresses = total_addresses - located_addresses
+    a, b, c, d = st.columns(4)
     a.metric("실거래 API 키", "설정됨" if service_key() else "미설정")
-    b.metric("주소 좌표 API 키", "설정됨" if os.getenv("KAKAO_REST_API_KEY") else "미설정")
+    b.metric("주소 좌표 API 키", "설정됨" if kakao_key() else "미설정")
     c.metric("수집된 지역·월", f"{len(coverage):,}")
+    d.metric("지도 좌표 커버리지", f"{located_addresses / total_addresses:.1%}" if total_addresses else "—",
+             f"미확정 {missing_addresses:,}개", delta_color="inverse")
+    if missing_addresses:
+        st.error(f"좌표가 없는 주소 {missing_addresses:,}개가 지도에서 제외됩니다. 좌표 API 키를 설정한 뒤 보강을 실행하세요.")
     render_collection(path)
     with st.expander("API 전체 필드·수집 원문"):
         render_archive(path)
@@ -75,14 +85,17 @@ def data_management(path, selected_region):
             except ValueError as exc:
                 st.error(str(exc))
     with st.expander("③ 주소를 지도 좌표로 변환"):
-        st.caption("국토부 실거래 API에는 위도·경도가 없습니다. KAKAO_REST_API_KEY를 Secrets 또는 .env에 설정한 뒤 좌표를 수집하세요. 정확한 주소가 하나로 검색된 결과만 지도에 표시합니다.")
+        st.caption("국토부 실거래 API에는 위도·경도가 없습니다. 카카오 키가 있으면 카카오 주소 API를 우선 사용하고, 없으면 정확한 필지 후보를 자동 검증합니다. 행정구역 중심점은 저장하지 않습니다.")
         st.caption(f"좌표 수집 범위: {LABELS.get(selected_region, selected_region)} · 왼쪽 지역 선택을 따릅니다.")
         limit = st.number_input("이번 실행 최대 주소 수", 1, 1000, 100, key="geo_limit")
-        if st.button("미등록 주소 좌표 수집", disabled=not os.getenv("KAKAO_REST_API_KEY")):
+        if st.button("미등록 주소 좌표 검증·수집"):
             try:
                 with st.spinner("주소 좌표를 수집하고 있습니다."):
-                    matched, missing = geocode_pending(path, os.getenv("KAKAO_REST_API_KEY", ""), limit,
-                                                       region=None if selected_region == "전체" else selected_region)
+                    selected_code = None if selected_region == "전체" else selected_region
+                    if kakao_key():
+                        matched, missing = geocode_pending(path, kakao_key(), limit, region=selected_code)
+                    else:
+                        matched, missing = geocode_pending_arcgis(path, limit, region=selected_code)
                 st.session_state["geocode_result"] = f"좌표 저장 {matched}건 / 미확정 {missing}건"
                 st.rerun()
             except ValueError as exc:
@@ -106,10 +119,10 @@ APP_CSS = """
 .app-copy {color:#66758a; font-size:.97rem;}
 .map-legend {display:flex; flex-wrap:wrap; gap:16px; align-items:center; color:#637083;
   font-size:.82rem; margin:2px 0 10px;}
-.legend-dot {display:inline-block; width:11px; height:11px; margin-right:6px; border-radius:50%;
+.legend-dot {display:inline-block; width:14px; height:11px; margin-right:6px; border-radius:3px;
   background:#087f8c; vertical-align:-1px;}
-.legend-ring {display:inline-block; width:14px; height:14px; margin-right:6px; border:3px solid #e29137;
-  border-radius:50%; vertical-align:-3px;}
+.legend-ring {display:inline-block; width:14px; height:11px; margin-right:6px; background:#ab5d1c;
+  border-radius:3px; vertical-align:-1px;}
 .selection-empty {min-height:150px; display:flex; flex-direction:column; justify-content:center;
   align-items:center; text-align:center; padding:30px; border:1px dashed #cbd5e1; border-radius:22px;
   color:#718096; background:rgba(255,255,255,.55);}
@@ -279,10 +292,10 @@ with map_tab:
     elif not points:
         st.info("현재 조건에 맞는 실거래 또는 매물 데이터가 없습니다. 지역과 검색 조건을 조정해 주세요.")
     control, note = st.columns([1, 3], vertical_alignment="center")
-    show_labels = control.checkbox("가격 라벨", value=True, key="map_labels")
-    note.caption("원 안 숫자는 최근 3개 계약월 평균(억원)입니다. 주황색 테두리는 현재 매물이 있는 단지입니다.")
-    st.html('<div class="map-legend"><span><i class="legend-dot"></i>실거래가 있는 아파트</span>'
-            '<span><i class="legend-ring"></i>활성 매물이 있는 아파트</span></div>')
+    show_labels = control.checkbox("단지 정보 카드", value=True, key="map_labels")
+    note.caption("카드에는 단지명, 전용면적, 최근 평균가격, 실거래·매물 건수를 표시합니다. 겹치는 카드는 확대하면 추가로 나타납니다.")
+    st.html('<div class="map-legend"><span><i class="legend-dot"></i>청록: 실거래 단지</span>'
+            '<span><i class="legend-ring"></i>주황: 활성 매물 보유</span></div>')
     event = st.pydeck_chart(housing_deck(points, region, show_labels), height=590,
                             on_select="rerun", selection_mode="single-object",
                             key=f"housing_map_{region}_{query}")
@@ -309,7 +322,7 @@ with map_tab:
     missing = sum(apartment_id(row) not in located_keys for row in all_groups.to_dict("records"))
     if missing:
         st.caption(f"좌표 미확정 아파트 {missing:,}개는 지도에서 제외되었습니다. 데이터 관리에서 주소 좌표를 보완할 수 있습니다.")
-    st.caption("실거래가 없던 단지는 최근 거래월 평균을 표시합니다. 지도 좌표 일부: © OpenStreetMap contributors (ODbL).")
+    st.caption("실거래가 없던 단지는 최근 거래월 평균을 표시합니다. 좌표 출처: © OpenStreetMap contributors (ODbL), Esri ArcGIS World Geocoding Service, 도로명주소 조회 자료.")
 
 with watch_tab:
     if favorite_ids:

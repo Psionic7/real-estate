@@ -32,7 +32,7 @@ def test_summary_keeps_unlocated_trades_and_latest_day_median():
     assert points[0]["label"] == "10.00"
     assert "계산 기간 2026-06~2026-08" in points[0]["summary"]
     deck = housing_deck(points, "41465")
-    assert deck.layers[-1].id == "apartment-labels"
+    assert deck.layers[-1].id == "apartment-cards"
     assert len(housing_deck(points, "41465", False).layers) == 1
 
 
@@ -71,7 +71,7 @@ def test_recent_and_fallback_periods_stay_separate_on_map():
 def test_map_combines_active_listings_and_keeps_listing_only_apartments():
     trades = pd.DataFrame([sample(lat=37.3, lon=127.1)])
     listing = dict(region_code="41465", dong="풍덕천동", address="수지구 풍덕천동 1",
-                   apartment="같은이름", price_eok=11.5, lat=37.3, lon=127.1)
+                   apartment="같은이름", price_eok=11.5, area_m2=84.0, lat=37.3, lon=127.1)
     listing_only = dict(listing, address="수지구 풍덕천동 2", apartment="매물전용",
                         price_eok=7.0, lat=37.31, lon=127.11)
     points = map_price_points(trades, listings=pd.DataFrame([listing, listing_only]))
@@ -81,7 +81,7 @@ def test_map_combines_active_listings_and_keeps_listing_only_apartments():
     assert by_name["매물전용"]["average_price"] is None
     assert by_name["매물전용"]["label"] == "매물 1"
     deck = housing_deck(points, "41465")
-    assert deck.layers[0].id == "active-listings"
+    assert deck.layers[0].id == "apartment-cards"
 
 
 def test_provider_name_is_canonicalized_for_suji_samsung_first():

@@ -73,12 +73,13 @@ KAKAO_REST_API_KEY=발급받은REST키
 `KAKAO_REST_API_KEY`를 환경변수 또는 Streamlit Secrets에 설정하고, **데이터 관리 → 주소를 지도 좌표로 변환**을 실행하세요.
 좌표 수집은 왼쪽에서 선택한 지역을 대상으로 하며 성공한 주소는 SQLite에 캐시합니다.
 지도 중심 기본값은 화면 이동용이며 단지 좌표로 사용하지 않습니다. 검색 결과가 없어도 배경지도는 유지됩니다.
-아파트 대시보드는 좌표 없이도 사용할 수 있습니다. 지도 라벨은 정확한 좌표가 확보된 단지 중 거래가 많은 최대 100개를 표시합니다.
+아파트 대시보드는 좌표 없이도 사용할 수 있습니다. 지도는 겹침 방지 카드에 단지명, 전용면적, 최근 평균가격, 실거래·매물 건수를 표시하며 확대하면 주변 카드가 추가로 나타납니다.
 
-초기 좌표 캐시는 OpenStreetMap의 행정경계 안에서 실거래 아파트명과 정확히 일치하는 건물·주거단지 객체만 가져옵니다. 같은 이름이 여러 위치에 있으면 저장하지 않습니다. 데이터 출처는 © OpenStreetMap contributors이며 [ODbL](https://www.openstreetmap.org/copyright)을 따릅니다.
+초기 좌표 캐시는 OpenStreetMap의 정확한 단지명 자료와 필지 주소 검색 결과를 함께 사용합니다. 필지·법정동 일치, 지역 범위, 후보 간 거리 검증을 모두 통과한 좌표만 저장하며 행정동 중심점으로 대체하지 않습니다. 좌표 출처에는 © OpenStreetMap contributors([ODbL](https://www.openstreetmap.org/copyright)), Esri ArcGIS World Geocoding Service, 도로명주소 조회 자료가 포함됩니다. 신규 실거래 수집이 끝나면 미등록 주소를 자동으로 보강하며, `KAKAO_REST_API_KEY`가 있으면 카카오 주소 API를 먼저 사용합니다. 데이터 관리 화면에서 좌표 커버리지와 미확정 건수를 확인할 수 있습니다.
 
 ```powershell
 python scripts/import_osm_geocodes.py
+python scripts/import_juso_geocodes.py
 ```
 단지 통계는 지역·법정동·주소·단지명으로 구분하며 선택한 기간·면적·금액 조건을 따릅니다.
 ‘최근일 중위가’는 해당 단지의 가장 최근 계약일에 발생한 모든 거래의 중앙값입니다. 면적 구성 변화에 따라 달라지므로 가격 상승률로 해석하지 않습니다.

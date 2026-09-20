@@ -196,6 +196,8 @@ def map_price_points(trades, region_views=None, listings=None):
             listing_groups[keys] = {
                 "count": len(group),
                 "median": float(group["price_eok"].median()),
+                "min_area": float(group["area_m2"].min()),
+                "max_area": float(group["area_m2"].max()),
                 "lat": float(located["lat"].median()),
                 "lon": float(located["lon"].median()),
             }
@@ -208,6 +210,9 @@ def map_price_points(trades, region_views=None, listings=None):
         trade_keys.add(keys)
         region, dong, address, apartment = keys
         average, count = group["price_eok"].mean(), len(group)
+        minimum_area, maximum_area = group["area_m2"].min(), group["area_m2"].max()
+        area_text = (f"{minimum_area:.0f}㎡" if round(minimum_area) == round(maximum_area)
+                     else f"{minimum_area:.0f}~{maximum_area:.0f}㎡")
         start, end, kind = group.iloc[0][["period_start", "period_end", "period_kind"]]
         period = start if start == end else f"{start}~{end}"
         listing = listing_groups.get(keys)
@@ -215,23 +220,33 @@ def map_price_points(trades, region_views=None, listings=None):
         listing_median = listing["median"] if listing else None
         listing_text = (f" · 활성 매물 {listing_count}건, 중위 {listing_median:.2f}억원"
                         if listing else " · 활성 매물 없음")
+        card_tail = f" · 매물 {listing_count}" if listing_count else ""
         points.append(dict(region_code=region, dong=dong, address=address, apartment=apartment,
             kind="아파트", lat=float(located["lat"].median()), lon=float(located["lon"].median()),
             count=count, average_price=average, period=period, period_kind=kind,
             listing_count=listing_count, listing_median=listing_median,
+            min_area=float(minimum_area), max_area=float(maximum_area), area_text=area_text,
             color=[8, 127, 140, 225], radius=85 + min(count, 30) * 7,
-            label=f"{average:.2f}",
+            label=f"{average:.2f}", priority=min(1000, count * 5 + listing_count * 20),
+            card_color=[12, 83, 94, 242] if not listing_count else [171, 93, 28, 244],
+            card_label=f"{apartment}\n{area_text} · {average:.2f}억 · 실거래 {count}{card_tail}",
             summary=f"{kind} 평균 {average:.2f}억원 · {count}건{listing_text}\n계산 기간 {period}"))
     for keys, listing in listing_groups.items():
         if keys in trade_keys:
             continue
         region, dong, address, apartment = keys
+        minimum_area, maximum_area = listing["min_area"], listing["max_area"]
+        area_text = (f"{minimum_area:.0f}㎡" if round(minimum_area) == round(maximum_area)
+                     else f"{minimum_area:.0f}~{maximum_area:.0f}㎡")
         points.append(dict(region_code=region, dong=dong, address=address, apartment=apartment,
             kind="매물 등록 아파트", lat=listing["lat"], lon=listing["lon"], count=0,
             average_price=None, period="실거래 없음", period_kind="실거래 없음",
             listing_count=listing["count"], listing_median=listing["median"],
+            min_area=float(minimum_area), max_area=float(maximum_area), area_text=area_text,
             color=[217, 138, 50, 230], radius=95 + min(listing["count"], 30) * 7,
-            label=f"매물 {listing['count']}",
+            label=f"매물 {listing['count']}", priority=min(1000, listing["count"] * 20),
+            card_color=[171, 93, 28, 244],
+            card_label=f"{apartment}\n{area_text} · {listing['median']:.2f}억 · 매물 {listing['count']}",
             summary=f"활성 매물 {listing['count']}건 · 중위 {listing['median']:.2f}억원\n최근 실거래 없음"))
     return points
 
