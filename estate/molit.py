@@ -6,7 +6,8 @@ from urllib.parse import unquote
 from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
 
-from estate.db import connect, finish_run, now_iso, raw_json, replace_trade_partition, start_run
+from estate.db import (connect, encode_response_xml, finish_run, now_iso, raw_json,
+                       replace_trade_partition, start_run)
 from estate.config import api_endpoint
 from estate.http import DataSourceError, get, session
 
@@ -105,12 +106,9 @@ def collect(path, key, region, month, region_name, client=None, endpoint=None, d
                 content = content.replace(secret.encode(), b"[REDACTED]")
             with connect(path) as conn:
                 conn.execute("INSERT INTO api_pages(run_id,page_no,endpoint,request_json,response_xml,received_at) "
-                             "VALUES(?,?,?,?,?,?)", (run, page, endpoint, raw_json(params), content, now_iso()))
+                             "VALUES(?,?,?,?,?,?)", (run, page, endpoint, raw_json(params),
+                                                      encode_response_xml(content), now_iso()))
             total, items = parse_page(content)
-            with connect(path) as conn:
-                conn.executemany("INSERT INTO api_items(run_id,page_no,item_no,region_code,deal_month,item_json) "
-                                 "VALUES(?,?,?,?,?,?)", [(run, page, i, region, month, raw_json(item))
-                                                         for i, item in enumerate(items, 1)])
             if expected is not None and total != expected:
                 raise DataSourceError("수집 도중 총 건수가 변경되었습니다. 월 전체를 다시 수집하세요.")
             expected = total

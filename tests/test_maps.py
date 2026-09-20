@@ -9,11 +9,12 @@ from estate.molit import normalize
 
 
 def test_map_uses_real_points_and_preserves_basemap_when_empty():
-    point = dict(lat=37.33, lon=127.10, kind="실거래", apartment="A", address="B",
-                 count=2, median_price="10.00", color=[8, 127, 140, 200], radius=75)
+    point = dict(lat=37.33, lon=127.10, kind="아파트", apartment="A", address="B",
+                 count=2, average_price=10, color=[8, 127, 140, 200], radius=75,
+                 label="A\n10.00억", summary="최근 3개월 평균 10.00억원")
     deck = json.loads(housing_deck([point], "41465").to_json())
     assert deck["initialViewState"]["latitude"] == point["lat"]
-    assert deck["layers"][0]["data"] == [point]
+    assert deck["layers"][1]["data"] == [point]
     empty = json.loads(housing_deck([], "41465").to_json())
     assert empty["mapProvider"] == "carto"
     assert empty["mapStyle"]

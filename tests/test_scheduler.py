@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from estate.config import api_endpoint, service_key
-from estate.db import connect, initialize
+from estate.db import connect, decode_response_xml, initialize
 from estate.scheduler import (claim_job, enqueue, enqueue_due, ensure_defaults, execute_job,
                               next_due, recent_months, save_target, targets, toggle_target)
 from estate.worker import WorkerLock
@@ -101,10 +101,9 @@ def test_all_api_fields_archive_and_dong_filter(scheduled_db):
     assert count == 1
     with connect(scheduled_db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM api_items").fetchone()[0] == 2
-        assert "newFutureField" in conn.execute("SELECT item_json FROM api_items ORDER BY item_no").fetchone()[0]
+        assert conn.execute("SELECT COUNT(*) FROM api_items").fetchone()[0] == 0
         page = conn.execute("SELECT request_json,response_xml FROM api_pages").fetchone()
-        assert b"newFutureField" in page["response_xml"]
+        assert b"newFutureField" in decode_response_xml(page["response_xml"])
         assert "serviceKey" not in page["request_json"]
 
 

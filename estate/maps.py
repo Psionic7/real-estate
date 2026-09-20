@@ -29,13 +29,13 @@ def housing_deck(points, region, show_labels=True):
         pdk.Layer("ScatterplotLayer", data=[p for p in shown if p["kind"] == kind],
                   id=layer_id, get_position="[lon, lat]", get_fill_color="color",
                   get_radius="radius", radius_min_pixels=min_pixels, radius_max_pixels=max_pixels,
-                  stroked=True, get_line_color=[255, 255, 255, 200], line_width_min_pixels=1,
+                  stroked=True, get_line_color=[255, 255, 255, 230], line_width_min_pixels=2,
                   pickable=True, auto_highlight=True)
-        for kind, layer_id, min_pixels, max_pixels in [("실거래", "trades", 12, 35),
-                                                      ("매물 호가", "listings", 6, 20)]
+        for kind, layer_id, min_pixels, max_pixels in [("지역 요약", "region-summary", 34, 55),
+                                                      ("아파트", "apartments", 16, 38)]
     ]
     if show_labels:
-        labels = sorted((p for p in shown if p["kind"] == "실거래" and "label" in p),
+        labels = sorted((p for p in shown if "label" in p),
                         key=lambda p: p["count"], reverse=True)[:100]
         layers.append(pdk.Layer(
             "TextLayer", id="apartment-labels", data=labels,

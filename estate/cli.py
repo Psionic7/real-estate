@@ -5,6 +5,7 @@ from pathlib import Path
 
 from estate.config import db_path, service_key
 from estate.db import backup, connect, initialize
+from estate.baseline import build_baseline, package_database
 from estate.geocode import geocode_pending
 from estate.listings import fetch_feed, import_rows, parse_payload
 from estate.molit import collect, months_between
@@ -15,6 +16,10 @@ def main():
     parser.add_argument("--db", type=Path, help="명시적 DB 경로 (기본: 실제 데이터 DB)")
     subs = parser.add_subparsers(dest="command", required=True)
     subs.add_parser("init")
+    baseline = subs.add_parser("baseline", help="기본 3개 지역을 2000년 1월부터 수집")
+    baseline.add_argument("--start", default="200001")
+    baseline.add_argument("--end", default=date.today().strftime("%Y%m"))
+    baseline.add_argument("--package", action="store_true", help="완료 후 배포용 .gz 생성")
     trade = subs.add_parser("collect")
     trade.add_argument("--region", required=True)
     trade.add_argument("--region-name", required=True)
@@ -40,7 +45,12 @@ def main():
     if is_demo and args.command in {"collect", "refresh", "import-listings", "fetch-listings", "geocode"}:
         parser.error("데모 DB에는 실제 데이터를 저장할 수 없습니다.")
     try:
-        if args.command in {"collect", "refresh"}:
+        if args.command == "baseline":
+            build_baseline(path, args.start, args.end)
+            if args.package:
+                packed = package_database(path)
+                print(f"Packaged baseline: {packed}")
+        elif args.command in {"collect", "refresh"}:
             if args.command == "refresh":
                 if not 1 <= args.months <= 120:
                     raise ValueError("months 범위는 1~120입니다.")

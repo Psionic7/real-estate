@@ -222,6 +222,12 @@ api-key.txt
 일반인증키.txt
 엔드포인트.txt
 
+# Runtime database is restored from the compressed baseline on first launch.
+data/estate.sqlite3
+data/estate.sqlite3-shm
+data/estate.sqlite3-wal
+data/*.worker.lock
+
 
 # common
 *.lock

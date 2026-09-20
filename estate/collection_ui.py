@@ -6,7 +6,8 @@ import pandas as pd
 import streamlit as st
 
 from estate.config import api_endpoint, service_key
-from estate.db import connect
+from estate.db import connect, decode_response_xml
+from estate.molit import parse_page
 from estate.scheduler import (KST, cancel_pending, enqueue, recent_months, save_target,
                               targets, toggle_target)
 
@@ -124,11 +125,12 @@ def render_archive(path):
                          format_func=lambda i: f"#{i} · {choices[i]['scope']} · {kst(choices[i]['started_at'])} · {choices[i]['status']}")
     with connect(path) as conn:
         pages = conn.execute("SELECT page_no,response_xml,request_json FROM api_pages WHERE run_id=? ORDER BY page_no", (run_id,)).fetchall()
-        raw_items = [json.loads(r[0]) for r in conn.execute("SELECT item_json FROM api_items WHERE run_id=? ORDER BY page_no,item_no", (run_id,))]
+    xml_pages = [decode_response_xml(row["response_xml"]) for row in pages]
+    raw_items = [item for payload in xml_pages for item in parse_page(payload)[1]]
     st.caption(f"원본 {len(pages)}페이지 · {len(raw_items):,}행. 광교 수집의 원본에는 API 조회 단위인 영통구 전체가 포함됩니다.")
     st.dataframe(pd.DataFrame(raw_items), hide_index=True, width="stretch")
     st.download_button("전체 필드 JSON 다운로드", json.dumps(raw_items, ensure_ascii=False, indent=2).encode(),
                        file_name=f"api-run-{run_id}.json", mime="application/json")
     page = st.selectbox("XML 페이지", range(len(pages)), format_func=lambda i: f"{pages[i]['page_no']}페이지")
-    st.download_button("응답 원문 XML 다운로드", pages[page]["response_xml"],
+    st.download_button("응답 원문 XML 다운로드", xml_pages[page],
                        file_name=f"api-run-{run_id}-page-{pages[page]['page_no']}.xml", mime="application/xml")

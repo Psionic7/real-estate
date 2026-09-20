@@ -1,7 +1,7 @@
 # 집의 흐름 — 한국 아파트 데이터 지도
 
 Windows · Python · Streamlit · SQLite로 만든 아파트 매매 실거래·매물 분석 MVP입니다.
-**실제 공공데이터만 사용하며 첫 화면은 용인시 수지구입니다.** 저장소에는 용인 수지·성남 분당·수원 광교의 실거래 초기 스냅샷이 포함됩니다.
+**실제 공공데이터만 사용하며 첫 화면은 용인시 수지구입니다.** 저장소에는 용인 수지·성남 분당·수원 광교의 2000년 이후 조회 결과가 압축 초기 DB로 포함됩니다.
 
 ## 바로 실행
 
@@ -42,7 +42,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Python "C:\Python3
 - 카카오 주소 API 좌표 변환 및 SQLite 캐시, 좌표 미확정 자료 분리
 - 지도 원 클릭 상세, 지역·계약일·면적·금액·주소·반경 필터
 - 첫 화면 아파트 대시보드: 단지별 요약 카드·거래수/가격 비교·전체 통계 CSV·단지 상세
-- 지도 아파트명·중위가격·거래수 라벨, 클릭 시 월별 가격 추이·면적별 통계
+- 지도 아파트명·최근 3개월 평균가격 라벨, 거래가 없으면 단지의 최근 거래월 평균과 계산 기간 표시
 - 실거래 중위가격, 거래량, 평당가격, 법정동·월별 통계, 유사 면적 호가 비교
 - UTF-8 BOM CSV 내려받기, 수집 범위/기록 조회, SQLite 온라인 백업
 
@@ -62,7 +62,7 @@ MOLIT_SERVICE_KEY=발급받은키
 KAKAO_REST_API_KEY=발급받은REST키
 ```
 
-키는 커밋하지 않습니다. DB는 `data/estate.sqlite3` 하나를 사용합니다. 새 DB가 비어 있어도 수지구 배경지도와 수집 화면을 표시합니다.
+키는 커밋하지 않습니다. 배포본은 `data/estate.sqlite3.gz`를 첫 실행에 `data/estate.sqlite3`로 복원합니다. 새 DB가 비어 있어도 수지구 배경지도와 수집 화면을 표시합니다.
 
 ### 지도에 거래 원이 없는 경우
 
@@ -83,6 +83,9 @@ KAKAO_REST_API_KEY=발급받은REST키
 
 # 지정 기간 수집 (모든 지역은 법정동 코드 앞 5자리를 입력)
 .\.venv\Scripts\python.exe -m estate.cli collect --region 11710 --region-name "서울특별시 송파구" --start 202601 --end 202608
+
+# 기본 3개 지역을 2000년 1월부터 수집하고 배포용 압축 DB 생성 (중단 후 같은 명령으로 재개)
+.\.venv\Scripts\python.exe -m estate.cli baseline --start 200001 --package
 
 # 좌표 변환, 매물 가져오기
 .\.venv\Scripts\python.exe -m estate.cli geocode --limit 100

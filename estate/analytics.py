@@ -6,21 +6,89 @@ import pandas as pd
 from estate.db import connect
 
 
-def load_data(path):
+def load_data(path, region=None, start=None, end=None):
+    trade_where, trade_params = ["1=1"], []
+    listing_where, listing_params = ["1=1"], []
+    if region and region != "전체":
+        trade_where.append("t.region_code=?")
+        listing_where.append("r.region_code=?")
+        trade_params.append(region)
+        listing_params.append(region)
+    if start:
+        trade_where.append("t.deal_date>=?")
+        trade_params.append(start)
+    if end:
+        trade_where.append("t.deal_date<=?")
+        trade_params.append(end)
     with connect(path) as conn:
-        trades = pd.read_sql_query("""SELECT t.*,
+        trades = pd.read_sql_query(f"""SELECT t.*,
             COALESCE(t.latitude,g.latitude) AS lat, COALESCE(t.longitude,g.longitude) AS lon
-            FROM trades t LEFT JOIN geocodes g ON t.address=g.address""", conn)
-        listings = pd.read_sql_query("""WITH ranked AS (
+            FROM trades t LEFT JOIN geocodes g ON t.address=g.address
+            WHERE {' AND '.join(trade_where)}""", conn, params=trade_params)
+        listings = pd.read_sql_query(f"""WITH ranked AS (
             SELECT *, ROW_NUMBER() OVER(PARTITION BY source,listing_id ORDER BY observed_at DESC,id DESC) AS rn
             FROM listing_snapshots)
             SELECT r.*, COALESCE(r.latitude,g.latitude) AS lat, COALESCE(r.longitude,g.longitude) AS lon
-            FROM ranked r LEFT JOIN geocodes g ON r.address=g.address WHERE r.rn=1""", conn)
+            FROM ranked r LEFT JOIN geocodes g ON r.address=g.address
+            WHERE r.rn=1 AND {' AND '.join(listing_where)}""", conn, params=listing_params)
     for df in (trades, listings):
         df["price_eok"] = df["price_man"] / 10000
         df["price_per_m2"] = df["price_man"] / df["area_m2"]
         df["price_per_pyeong"] = df["price_per_m2"] * 3.305785
     return trades, listings
+
+
+def latest_deal_date(path, region=None):
+    where, params = "", []
+    if region and region != "전체":
+        where, params = "WHERE region_code=?", [region]
+    with connect(path) as conn:
+        row = conn.execute(f"SELECT MAX(deal_date) FROM trades {where}", params).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def load_map_trades(path, region=None):
+    """Load three latest calendar months plus each inactive apartment's latest month."""
+    region_sql, params = "", []
+    if region and region != "전체":
+        region_sql, params = "AND t.region_code=?", [region]
+    query = f"""
+        WITH selected AS (
+            SELECT t.*, COALESCE(t.latitude,g.latitude) lat, COALESCE(t.longitude,g.longitude) lon
+            FROM trades t LEFT JOIN geocodes g ON t.address=g.address
+            WHERE t.cancelled=0 {region_sql}
+        ), anchors AS (
+            SELECT region_code, MAX(deal_date) anchor_date FROM selected GROUP BY region_code
+        ), recent AS (
+            SELECT s.*, '최근 3개월' period_kind,
+                   strftime('%Y-%m', date(a.anchor_date,'start of month','-2 months')) period_start,
+                   strftime('%Y-%m', a.anchor_date) period_end
+            FROM selected s JOIN anchors a USING(region_code)
+            WHERE s.deal_date>=date(a.anchor_date,'start of month','-2 months')
+              AND s.deal_date<=a.anchor_date
+        ), active_apartments AS (
+            SELECT DISTINCT region_code,dong,address,apartment FROM recent
+        ), fallback_months AS (
+            SELECT s.region_code,s.dong,s.address,s.apartment,MAX(s.deal_month) deal_month
+            FROM selected s LEFT JOIN active_apartments a
+              ON a.region_code=s.region_code AND a.dong=s.dong AND a.address=s.address AND a.apartment=s.apartment
+            WHERE a.apartment IS NULL
+            GROUP BY s.region_code,s.dong,s.address,s.apartment
+        ), fallback AS (
+            SELECT s.*, '최근 거래월' period_kind,
+                   substr(s.deal_month,1,4)||'-'||substr(s.deal_month,5,2) period_start,
+                   substr(s.deal_month,1,4)||'-'||substr(s.deal_month,5,2) period_end
+            FROM selected s JOIN fallback_months f
+              ON f.region_code=s.region_code AND f.dong=s.dong AND f.address=s.address
+             AND f.apartment=s.apartment AND f.deal_month=s.deal_month
+        )
+        SELECT * FROM recent UNION ALL SELECT * FROM fallback
+    """
+    with connect(path) as conn:
+        trades = pd.read_sql_query(query, conn, params=params)
+    trades["price_eok"] = trades["price_man"] / 10000
+    trades["price_per_pyeong"] = trades["price_man"] / trades["area_m2"] * 3.305785
+    return trades
 
 
 def active_listings(listings, freshness_days=7, now=None):
@@ -94,17 +162,49 @@ def apartment_sample(trades, apartment):
     return trades[mask].copy()
 
 
-def map_points(trades, listings):
+def map_price_points(trades, region_views):
+    """Map overlays with apartment coordinates and a guaranteed regional summary."""
     points = []
-    for row in apartment_stats(trades).dropna(subset=["lat", "lon"]).to_dict("records"):
-        median = f"{row['median_price']:.2f}"
-        points.append(dict(row, kind="실거래", color=[8, 127, 140, 200],
-            median_price=median, radius=65 + min(row["count"], 40) * 5,
-            label=f"{row['apartment']}\n{median}억 · {row['count']}건",
-            summary=(f"실거래 {row['count']}건 · 중위 {median}억원\n"
-                     f"최저 {row['min_price']:.2f} / 최고 {row['max_price']:.2f}억원\n"
-                     f"최근 계약일 {row['latest_date']} · {row['latest_count']}건\n"
-                     f"최근일 중위 {row['latest_price']:.2f}억원")))
+    trades = trades[trades["cancelled"] == 0]
+    if trades.empty:
+        return points
+    for keys, group in trades.groupby(APARTMENT_KEYS, dropna=False):
+        located = group.dropna(subset=["lat", "lon"])
+        if located.empty:
+            continue
+        region, dong, address, apartment = keys
+        average, count = group["price_eok"].mean(), len(group)
+        start, end, kind = group.iloc[0][["period_start", "period_end", "period_kind"]]
+        period = start if start == end else f"{start}~{end}"
+        points.append(dict(region_code=region, dong=dong, address=address, apartment=apartment,
+            kind="아파트", lat=float(located["lat"].median()), lon=float(located["lon"].median()),
+            count=count, average_price=average, period=period, period_kind=kind,
+            color=[8, 127, 140, 225], radius=85 + min(count, 30) * 7,
+            label=f"{apartment}\n{average:.2f}억",
+            summary=f"{kind} 평균 {average:.2f}억원 · {count}건\n계산 기간 {period}"))
+    regions_with_apartments = {p["region_code"] for p in points}
+    for region_code, group in trades.groupby("region_code"):
+        if region_code in regions_with_apartments or region_code not in region_views:
+            continue
+        recent = group[group["period_kind"] == "최근 3개월"]
+        sample = recent if not recent.empty else group[group["deal_month"] == group["deal_month"].max()]
+        if sample.empty:
+            continue
+        average, count = sample["price_eok"].mean(), len(sample)
+        start, end, kind = sample.iloc[0][["period_start", "period_end", "period_kind"]]
+        period = start if start == end else f"{start}~{end}"
+        lat, lon, _ = region_views[region_code]
+        points.append(dict(region_code=region_code, dong="", address="", apartment="지역 전체 요약",
+            kind="지역 요약", lat=lat, lon=lon, count=count, average_price=average,
+            period=period, period_kind=kind, color=[38, 72, 120, 235], radius=650,
+            label=f"지역 평균\n{average:.2f}억",
+            summary=f"{kind} 평균 {average:.2f}억원 · {count:,}건\n계산 기간 {period}"))
+    return points
+
+
+def map_points(trades, listings):
+    """Backward-compatible point builder for listing comparisons."""
+    points = []
     for frame, kind, color in [(listings, "매물 호가", [241, 153, 62, 210])]:
         located = frame.dropna(subset=["lat", "lon"])
         for (region, dong, address, apt), group in located.groupby(APARTMENT_KEYS):

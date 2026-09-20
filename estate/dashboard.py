@@ -41,10 +41,24 @@ def render_apartment_detail(sample, key):
 
 
 def render_dashboard(summary, trades, region_label):
-    st.subheader(f"{region_label} 아파트 대시보드")
+    st.subheader(f"{region_label} 아파트 대시보드", icon=":material/dashboard:")
     if summary.empty:
         st.info("선택 조건에 맞는 실거래가 없습니다. 왼쪽 지역·기간·검색 조건을 조정하세요.")
         return
+    monthly = monthly_stats(trades)
+    latest_month = monthly.iloc[-1]
+    previous_price = monthly.iloc[-2]["중위가격(억원)"] if len(monthly) > 1 else None
+    delta = latest_month["중위가격(억원)"] - previous_price if previous_price is not None else None
+    with st.container(horizontal=True):
+        st.metric("조회 아파트", f"{len(summary):,}개", border=True,
+                  help="주소가 다른 동명 아파트는 별도 단지로 계산합니다.")
+        st.metric("최근 계약월", latest_month["계약월"], f"{latest_month['거래량']:,}건", border=True,
+                  chart_data=monthly["거래량"].tolist(), chart_type="bar")
+        st.metric("최근월 중위가격", f"{latest_month['중위가격(억원)']:.2f}억원",
+                  f"{delta:+.2f}억원" if delta is not None else None, border=True,
+                  chart_data=monthly["중위가격(억원)"].tolist(), chart_type="line")
+        st.metric("평당 중위가격", f"{summary['median_per_pyeong'].median():,.0f}만원", border=True,
+                  help="단지별 평당 중위가격의 중앙값입니다.")
     left, right = st.columns([2, 1])
     sort = left.selectbox("아파트 정렬", ["거래 많은 순", "중위가격 높은 순", "최근 거래 순"], key="apartment_sort")
     minimum = right.number_input("단지별 최소 거래수", min_value=1, max_value=1000, value=1, key="apartment_min_count")
@@ -56,31 +70,48 @@ def render_dashboard(summary, trades, region_label):
     if ranked.empty:
         st.info("최소 거래수를 만족하는 단지가 없습니다. 최소 거래수를 낮춰 주세요.")
         return
+    st.markdown("**거래가 활발한 아파트**")
     cards = ranked.head(6).to_dict("records")
     for offset in range(0, len(cards), 3):
-        for column, row in zip(st.columns(3), cards[offset:offset + 3]):
+        for rank, (column, row) in enumerate(zip(st.columns(3), cards[offset:offset + 3]), start=offset + 1):
             with column.container(border=True):
-                st.markdown(f"**{row['apartment']}**")
+                st.badge(f"{rank}위", color="blue" if rank <= 3 else "gray")
+                st.markdown(f"### {row['apartment']}")
                 st.caption(row["address"] or row["dong"])
                 st.metric("중위 실거래가", f"{row['median_price']:.2f}억원")
-                st.write(f"거래 **{row['count']:,}건** · {row['min_price']:.2f}~{row['max_price']:.2f}억")
-                st.caption(f"최근 {row['latest_date']} · 당일 중위 {row['latest_price']:.2f}억")
+                st.markdown(f":material/contract: **{row['count']:,}건**　:material/straighten: "
+                            f"{row['min_area']:.0f}~{row['max_area']:.0f}㎡")
+                st.caption(f"범위 {row['min_price']:.2f}~{row['max_price']:.2f}억 · "
+                           f"최근 {row['latest_date']} {row['latest_price']:.2f}억")
 
-    st.markdown("**선택 정렬 기준 상위 12개 단지 비교**")
+    st.markdown("**선택 정렬 기준 상위 12개 비교**")
     comparison = ranked.head(12).copy()
     # Include rank and address so identically named complexes do not merge in charts.
     comparison["단지"] = [f"{i + 1:02d}. {r.apartment} · {r.dong}" for i, r in comparison.iterrows()]
     comparison = comparison.rename(columns={"count": "거래수", "median_price": "중위가격(억원)"})
     a, b = st.columns(2)
-    a.bar_chart(comparison, x="단지", y="거래수", horizontal=True, color="#087F8C", height=350)
-    b.bar_chart(comparison, x="단지", y="중위가격(억원)", horizontal=True, color="#D98A32", height=350)
+    with a.container(border=True):
+        st.markdown("**거래량**")
+        st.bar_chart(comparison, x="단지", y="거래수", horizontal=True, color="#087F8C", height=350)
+    with b.container(border=True):
+        st.markdown("**중위 실거래가**")
+        st.bar_chart(comparison, x="단지", y="중위가격(억원)", horizontal=True, color="#D98A32", height=350)
 
     st.markdown("**아파트별 전체 통계**")
     table = ranked[list(SUMMARY_LABELS)].rename(columns=SUMMARY_LABELS).round(2)
-    st.dataframe(table, hide_index=True, key="apartment_summary", height=380)
+    st.dataframe(table, hide_index=True, key="apartment_summary", height=420,
+                 column_config={
+                     "아파트": st.column_config.TextColumn(pinned=True),
+                     "거래수": st.column_config.ProgressColumn(min_value=0, max_value=max(ranked["count"]), format="%d건"),
+                     "중위가격(억원)": st.column_config.NumberColumn(format="%.2f억원"),
+                     "최저가(억원)": st.column_config.NumberColumn(format="%.2f억원"),
+                     "최고가(억원)": st.column_config.NumberColumn(format="%.2f억원"),
+                     "최근일 중위가(억원)": st.column_config.NumberColumn(format="%.2f억원"),
+                     "평당중위가(만원)": st.column_config.NumberColumn(format="%,.0f만원"),
+                 })
     st.download_button("아파트 통계 CSV 저장", export_csv(table), file_name="apartment-statistics.csv",
                        mime="text/csv", key="apartment_export")
-    st.divider()
+    st.space("small")
     options = list(range(len(ranked)))
     # Filters may shrink or reorder rows: reset the drill-down rather than retain a wrong apartment.
     signature = tuple(tuple(row) for row in ranked[["region_code", "dong", "address", "apartment"]].values)

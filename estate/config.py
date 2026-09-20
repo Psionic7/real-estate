@@ -1,4 +1,6 @@
+import gzip
 import os
+import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,7 +16,19 @@ def data_dir() -> Path:
 
 
 def db_path() -> Path:
-    return data_dir() / "estate.sqlite3"
+    path = data_dir() / "estate.sqlite3"
+    packaged = path.with_suffix(path.suffix + ".gz")
+    if not path.exists() and packaged.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            with gzip.open(packaged, "rb") as source, temporary.open("wb") as target:
+                shutil.copyfileobj(source, target)
+            if not path.exists():
+                os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return path
 
 
 def read_setting(env_name, filenames, default=""):

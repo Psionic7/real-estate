@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import zlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,3 +151,36 @@ def backup(path, destination):
 
 def raw_json(item):
     return json.dumps(item, ensure_ascii=False, sort_keys=True)
+
+
+def encode_response_xml(content):
+    """Compress provider XML while keeping legacy uncompressed rows readable."""
+    return zlib.compress(bytes(content), level=9)
+
+
+def decode_response_xml(content):
+    payload = bytes(content)
+    if payload.lstrip().startswith(b"<"):
+        return payload
+    return zlib.decompress(payload)
+
+
+def compact_api_archive(path):
+    """Compress legacy XML and remove the duplicate per-item archive.
+
+    Every API field remains in api_pages.response_xml. Normalized records also
+    retain their original item JSON in trades.raw_json.
+    """
+    with connect(path) as conn:
+        pages = conn.execute("SELECT id,response_xml FROM api_pages").fetchall()
+        for page in pages:
+            payload = bytes(page["response_xml"])
+            if payload.lstrip().startswith(b"<"):
+                conn.execute("UPDATE api_pages SET response_xml=? WHERE id=?",
+                             (encode_response_xml(payload), page["id"]))
+        conn.execute("DELETE FROM api_items")
+    conn = sqlite3.connect(path, timeout=30)
+    try:
+        conn.execute("VACUUM")
+    finally:
+        conn.close()

@@ -6,14 +6,15 @@ import pandas as pd
 import streamlit as st
 
 from estate.analytics import (active_listings, apartment_stats, apartment_sample, comparable_gap, export_csv, filter_common,
-                              load_data, map_points, monthly_stats, within_radius)
+                              latest_deal_date, load_data, load_map_trades, map_price_points,
+                              monthly_stats, within_radius)
 from estate.config import ROOT, db_path, service_key
 from estate.collection_ui import render_collection, render_archive
 from estate.db import connect, initialize
 from estate.dashboard import render_dashboard, render_apartment_detail
 from estate.geocode import geocode_pending
 from estate.listings import import_rows, parse_payload
-from estate.maps import DEFAULT_REGION, housing_deck
+from estate.maps import DEFAULT_REGION, REGION_VIEWS, housing_deck
 from estate.scheduler import ensure_defaults, targets
 from estate.worker import start_background
 
@@ -109,23 +110,27 @@ collection_worker(str(path))
 if st.sidebar.button("새로고침"):
     st.rerun()
 
-trades, listings = load_data(path)
 saved_targets = targets(path)
 LABELS.update({r["region_code"]: r["display_name"] for r in saved_targets})
 LABELS[DEFAULT_REGION] = "용인시 수지구"
-regions = sorted(set(trades["region_code"]) | set(listings["region_code"]) |
-                 {r["region_code"] for r in saved_targets} | {DEFAULT_REGION})
+with connect(path) as conn:
+    stored_regions = {r[0] for r in conn.execute(
+        "SELECT region_code FROM trades UNION SELECT region_code FROM listing_snapshots")}
+regions = sorted(stored_regions | {r["region_code"] for r in saved_targets} | {DEFAULT_REGION})
 region = st.sidebar.selectbox("지역", ["전체"] + regions,
                               index=regions.index(DEFAULT_REGION) + 1,
                               format_func=lambda r: LABELS.get(r, r), key="region")
 query = st.sidebar.text_input("단지·주소 검색", placeholder="예: 풍덕천동, 상현동", key="search")
-region_trades = trades if region == "전체" else trades[trades["region_code"] == region]
-last_date = date.fromisoformat(region_trades["deal_date"].max()) if not region_trades.empty else date.today()
+latest = latest_deal_date(path, region)
+last_date = date.fromisoformat(latest) if latest else date.today()
 period = st.sidebar.date_input("실거래 계약 기간", (last_date - timedelta(days=180), last_date), key=f"period_{region}")
 area = st.sidebar.slider("전용면적 (㎡)", 0, 300, (0, 200))
 price = st.sidebar.slider("거래가·호가 (억원)", 0.0, 300.0, (0.0, 100.0), step=0.5)
 freshness = st.sidebar.slider("매물 확인 유효기간 (일)", 1, 60, 7)
 st.sidebar.caption("최근 확인된 active 매물만 집계합니다. 실거래 계약 기간과 매물 확인 기간은 별개입니다.")
+
+start_date, end_date = (period[0].isoformat(), period[1].isoformat()) if len(period) == 2 else (None, None)
+trades, listings = load_data(path, region, start_date, end_date)
 
 st.title("집의 흐름")
 st.markdown(f"**{LABELS.get(region, region)}** · 아파트별 실거래를 대시보드와 지도에서 한눈에.")
@@ -134,9 +139,7 @@ trades = trades[trades["cancelled"] == 0].copy()
 live = active_listings(listings, freshness)
 filtered_trades = filter_common(trades, region, area, price, query)
 filtered_listings = filter_common(live, region, area, price, query)
-if len(period) == 2:
-    filtered_trades = filtered_trades[filtered_trades["deal_date"].between(period[0].isoformat(), period[1].isoformat())]
-else:
+if len(period) != 2:
     st.warning("실거래 기간의 시작일과 종료일을 모두 선택하세요.")
     filtered_trades = filtered_trades.iloc[0:0]
 
@@ -156,7 +159,7 @@ if st.sidebar.checkbox("반경으로 범위 좁히기", key="radius_enabled"):
         st.caption(f"반경 범위: {center['apartment']}에서 {radius:.1f}km · 좌표가 없는 데이터는 제외")
 
 apartments = apartment_stats(filtered_trades)
-a, b, c, d = st.columns(4)
+a, b, c, d = st.columns(4, border=True, vertical_alignment="center")
 a.metric("실거래 건수", f"{len(filtered_trades):,}건")
 b.metric("실거래 중위가격", f"{filtered_trades['price_eok'].median():.2f}억원" if len(filtered_trades) else "—")
 c.metric("거래된 아파트", f"{len(apartments):,}개")
@@ -170,14 +173,17 @@ dashboard_tab, map_tab, stats_tab, table_tab, manage_tab = st.tabs(
 with dashboard_tab:
     render_dashboard(apartments, filtered_trades, LABELS.get(region, region))
 with map_tab:
-    st.subheader("거래가 쌓인 곳, 매물이 나온 곳")
-    st.caption("청록: 실거래 / 주황: 매물 호가 · 원의 크기: 관측 수 · 원을 클릭하면 해당 주소·단지의 상세가 표시됩니다.")
-    points = map_points(filtered_trades, filtered_listings)
-    show_labels = st.checkbox("지도에 아파트명·중위가격·거래수 표시", value=True, key="map_labels")
-    st.caption("가격 라벨은 거래가 많은 최대 100개 단지에 표시합니다. 겹치면 지도를 확대하거나 라벨을 꺼 주세요.")
-    missing = sum(frame[["lat", "lon"]].isna().any(axis=1).sum()
-                  for frame in (filtered_trades, filtered_listings))
-    st.caption(f"지도 표시 {len(points):,}개 그룹 / 좌표 미확정 {missing:,}건 (반경 필터가 없으면 지역 통계에는 포함)")
+    st.subheader("지도 위 최근 실거래 평균")
+    st.caption("청록: 좌표가 확인된 아파트 · 파랑: 좌표가 없을 때의 선택 지역 전체 요약. 원을 선택하면 계산 표본을 확인할 수 있습니다.")
+    map_trades = filter_common(load_map_trades(path, region), region, area, price, query)
+    points = map_price_points(map_trades, REGION_VIEWS)
+    show_labels = st.checkbox("지도에 아파트명·평균가격 표시", value=True, key="map_labels")
+    st.caption("가격 라벨은 최근 3개 계약월의 산술평균입니다. 거래가 없으면 단지의 최근 거래월 평균과 계산 기간을 표시합니다.")
+    map_apartments = map_trades.groupby(["region_code", "dong", "address", "apartment"], dropna=False)
+    missing = sum(group[["lat", "lon"]].isna().all(axis=1).all() for _, group in map_apartments)
+    st.caption(f"지도 오버레이 {len(points):,}개 / 좌표 미확정 아파트 {missing:,}개")
+    if missing and not any(point["kind"] == "아파트" for point in points):
+        st.info("단지 좌표가 아직 없습니다. 선택 지역 중심에 지역 평균을 표시하며, 주소 좌표가 저장되면 아파트별 오버레이로 바뀝니다.")
     if len(points) > 5000:
         st.warning("지도는 최대 5,000개 그룹을 표시합니다. 지역·검색·반경 필터로 범위를 좁히세요.")
     event = st.pydeck_chart(housing_deck(points, region, show_labels), height=510,
@@ -186,21 +192,21 @@ with map_tab:
     selected = [item for group in event.selection.get("objects", {}).values() for item in group]
     if selected:
         item = selected[0]
-        render_apartment_detail(apartment_sample(filtered_trades, item), "map_selected")
-        for frame, is_listing in [(filtered_trades, False), (filtered_listings, True)]:
-            subset = apartment_sample(frame, item)
-            st.write("현재 매물" if is_listing else "실거래 내역")
-            show_table(subset, is_listing, f"selected_{is_listing}")
+        st.markdown(f"**{item['apartment']} · 평균 {item['average_price']:.2f}억원**")
+        st.caption(f"{item['period_kind']} · 계산 기간 {item['period']} · 실거래 {item['count']:,}건")
+        if item["kind"] == "아파트":
+            subset = apartment_sample(map_trades, item)
+            st.markdown("**평균 계산에 포함된 실거래**")
+            show_table(subset.sort_values("deal_date", ascending=False), key="map_sample")
+        else:
+            st.info("현재 단지 좌표가 없어 선택 지역 중심에 전체 평균을 표시합니다. 주소 좌표를 수집하면 아파트별 오버레이로 자동 전환됩니다.")
     elif points:
         st.info("지도 원을 선택하면 단지의 실거래와 현재 매물을 함께 살펴볼 수 있습니다.")
-    elif missing:
-        st.info("이 지역의 배경지도를 표시하고 있습니다. 거래는 수집되어 있지만 단지 좌표가 아직 없습니다. "
-                "데이터 관리 → 주소를 지도 좌표로 변환에서 좌표를 수집하면 거래 위치가 표시됩니다.")
     else:
         st.info("현재 조건에 맞는 거래·매물이 없습니다. 지역·기간·검색 조건을 조정하거나 데이터 관리에서 수집하세요.")
     if not points and region not in {"41465", "41135", "41117", "11680", "11710", "11440", "26350", "전체"}:
         st.caption("이 지역은 아직 지도 중심 좌표가 없어 전국 지도로 표시합니다.")
-    st.caption("지도 이동·확대는 통계 범위를 바꾸지 않습니다. 왼쪽 지역·반경 필터로 범위를 지정하세요. 배경지도는 인터넷 연결이 필요합니다.")
+    st.caption("지도 평균은 왼쪽 면적·가격·검색 조건을 따르며 계약 기간 필터와는 별개로 최근 3개 계약월을 계산합니다. 지도 이동·확대는 통계 범위를 바꾸지 않습니다.")
 
 with stats_tab:
     st.subheader("가격과 거래량의 흐름")

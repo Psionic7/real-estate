@@ -10,8 +10,8 @@
 | 성남 분당 | 41135 | 경기도 성남시 분당구 | 전체 |
 | 수원 광교 | 41117 | 경기도 수원시 영통구 | 이의동, 하동, 원천동 |
 
-매일 **오전 06:00 한국시간**, 최근 **12개월**을 재수집한다. 초기 기간은 202510~202609다.
-첫 전체 수집 결과는 수지 6,544건 / 분당 4,124건 / 광교 1,580건, 총 12,248건이며 해제 거래도 저장 건수에 포함한다.
+매일 **오전 06:00 한국시간**, 최근 **12개월**을 재수집한다. 초기 데이터는 2000년 1월부터 현재월까지 조회해 저장한다.
+API 제공 이전의 빈 월도 성공 수집 이력으로 남으므로 초기 수집을 재개할 때 다시 호출하지 않는다.
 실거래 통계에서는 해제 거래를 제외하므로 화면의 건수는 저장 건수보다 작을 수 있다.
 
 ‘광교’는 독립된 API 시군구 코드가 아니다. API 요청은 영통구 단위로 실행하고 분석 테이블에는 설정한 법정동만 반영한다.
@@ -79,8 +79,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register_collector
 | 테이블 | 저장 내용 |
 |---|---|
 | trades | 선택 지역·법정동의 현재 정규화 거래와 item 전체 raw_json |
-| api_pages | 회차/페이지별 원문 XML BLOB, 엔드포인트, 인증키 제외 요청조건, 수신 시각 |
-| api_items | 회차/페이지/행별 전체 item JSON. 향후 추가 필드도 보존 |
+| api_pages | 회차/페이지별 zlib 압축 원문 XML BLOB, 엔드포인트, 인증키 제외 요청조건, 수신 시각. 모든 item 필드 보존 |
+| api_items | 이전 스키마 호환용 테이블. 신규 수집은 원문 XML과 trades.raw_json의 중복 저장을 피함 |
 | collection_runs | 월별 API 수집 결과, 실패 여부, 반영 건수 |
 | collection_targets | 관심 지역, 법정동, 주기, 다음 실행 시각 |
 | collection_jobs | 사용자/자동 요청, 진행 월, 완료 개월, 건수, 성공·실패·취소 |
@@ -102,9 +102,7 @@ SELECT region_code, deal_date, apartment,
        json_extract(raw_json, '$.buyerGbn') AS buyer_type
 FROM trades;
 
-SELECT run_id, region_code, deal_month, item_json
-FROM api_items
-WHERE region_code = '41135' AND deal_month = '202608';
+-- 전체 원천 필드는 웹의 ‘API 전체 필드·원본 조회’에서 XML을 해제해 표/JSON으로 확인
 ```
 
 원본 이력은 자동 삭제하지 않는다. 매일 같은 월을 재수집하면 원본 누적 크기가 증가하므로 백업·보존 용량을 관리해야 한다.
