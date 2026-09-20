@@ -12,7 +12,8 @@ def test_empty_database_keeps_suji_map_and_collection_controls(tmp_path, monkeyp
     monkeypatch.setenv("REAL_ESTATE_DATA_DIR", str(tmp_path))
     app = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not app.exception
-    assert len(app.tabs) == 4
+    assert len(app.tabs) == 5
+    assert app.tabs[0].label == "아파트 대시보드"
     assert app.selectbox(key="region").value == "41465"
     assert not app.radio
     assert app.metric[0].value == "0건"
@@ -40,6 +41,15 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     app = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not app.exception
     assert app.metric[0].value == "1건"
+    summary = next(table.value for table in app.dataframe if "아파트" in table.value.columns)
+    assert len(summary) == 1
+    assert summary.iloc[0]["아파트"] == "테스트단지"
+    app.selectbox(key="apartment_sort").select("중위가격 높은 순").run()
+    assert not app.exception
+    app.number_input(key="apartment_min_count").set_value(2).run()
+    assert not app.exception
+    assert any("최소 거래수를 만족" in message.value for message in app.info)
+    app.number_input(key="apartment_min_count").set_value(1).run()
     assert len(app.get("deck_gl_json_chart")) == 1
     assert any("단지 좌표가 아직 없습니다" in message.value for message in app.info)
     app.text_input(key="search").set_value("NO SUCH APARTMENT").run()

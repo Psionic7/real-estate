@@ -13,7 +13,7 @@ REGION_VIEWS = {
 }
 
 
-def housing_deck(points, region):
+def housing_deck(points, region, show_labels=True):
     """Render a basemap even with no geocoded properties or no matching trades."""
     if points:
         # Use all available points for the camera, independent of marker truncation.
@@ -34,9 +34,20 @@ def housing_deck(points, region):
         for kind, layer_id, min_pixels, max_pixels in [("실거래", "trades", 12, 35),
                                                       ("매물 호가", "listings", 6, 20)]
     ]
+    if show_labels:
+        labels = sorted((p for p in shown if p["kind"] == "실거래" and "label" in p),
+                        key=lambda p: p["count"], reverse=True)[:100]
+        layers.append(pdk.Layer(
+            "TextLayer", id="apartment-labels", data=labels,
+            get_position="[lon, lat]", get_text="label", get_size=13,
+            get_color=[23, 43, 77], get_pixel_offset=[0, -30],
+            get_text_anchor="middle", get_alignment_baseline="bottom",
+            background=True, get_background_color=[255, 255, 255, 230],
+            background_padding=[5, 3], font_family="sans-serif", pickable=True,
+        ))
     return pdk.Deck(
         map_provider="carto", map_style="road",
         initial_view_state=pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom),
         layers=layers,
-        tooltip={"text": "{apartment}\n{kind} {count}건 · 중위 {median_price}억원\n{address}"},
+        tooltip={"text": "{apartment}\n{summary}\n{address}"},
     )

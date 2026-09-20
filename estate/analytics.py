@@ -57,14 +57,62 @@ def monthly_stats(trades):
                                        "평당중위가격(만원)": ("price_per_pyeong", "median")}).reset_index()
 
 
+APARTMENT_KEYS = ["region_code", "dong", "address", "apartment"]
+APARTMENT_METRICS = ["count", "median_price", "min_price", "max_price", "total_price",
+                     "median_per_pyeong", "min_area", "max_area", "latest_date",
+                     "latest_price", "latest_count", "lat", "lon"]
+
+
+def apartment_stats(trades):
+    """Summarize the filtered sample; equal names at different addresses stay separate.
+
+    Latest price is the median on the most recent contract day, not an arbitrary
+    row when multiple transactions have the same date. Coordinates never affect
+    the price/volume sample.
+    """
+    rows = []
+    for keys, group in trades[trades["cancelled"] == 0].groupby(APARTMENT_KEYS, dropna=False):
+        latest_date = group["deal_date"].max()
+        latest = group[group["deal_date"] == latest_date]
+        located = group.dropna(subset=["lat", "lon"])
+        rows.append(dict(zip(APARTMENT_KEYS, keys), count=len(group),
+            median_price=group["price_eok"].median(), min_price=group["price_eok"].min(),
+            max_price=group["price_eok"].max(), total_price=group["price_eok"].sum(),
+            median_per_pyeong=group["price_per_pyeong"].median(),
+            min_area=group["area_m2"].min(), max_area=group["area_m2"].max(),
+            latest_date=latest_date, latest_price=latest["price_eok"].median(), latest_count=len(latest),
+            lat=located["lat"].median() if not located.empty else None,
+            lon=located["lon"].median() if not located.empty else None))
+    return pd.DataFrame(rows, columns=APARTMENT_KEYS + APARTMENT_METRICS).sort_values(
+        ["count", "latest_date", "apartment", "address"], ascending=[False, False, True, True]).reset_index(drop=True)
+
+
+def apartment_sample(trades, apartment):
+    mask = pd.Series(True, index=trades.index)
+    for key in APARTMENT_KEYS:
+        mask &= trades[key] == apartment[key]
+    return trades[mask].copy()
+
+
 def map_points(trades, listings):
     points = []
-    for frame, kind, color in [(trades, "실거래", [8, 127, 140, 200]), (listings, "매물 호가", [241, 153, 62, 210])]:
+    for row in apartment_stats(trades).dropna(subset=["lat", "lon"]).to_dict("records"):
+        median = f"{row['median_price']:.2f}"
+        points.append(dict(row, kind="실거래", color=[8, 127, 140, 200],
+            median_price=median, radius=65 + min(row["count"], 40) * 5,
+            label=f"{row['apartment']}\n{median}억 · {row['count']}건",
+            summary=(f"실거래 {row['count']}건 · 중위 {median}억원\n"
+                     f"최저 {row['min_price']:.2f} / 최고 {row['max_price']:.2f}억원\n"
+                     f"최근 계약일 {row['latest_date']} · {row['latest_count']}건\n"
+                     f"최근일 중위 {row['latest_price']:.2f}억원")))
+    for frame, kind, color in [(listings, "매물 호가", [241, 153, 62, 210])]:
         located = frame.dropna(subset=["lat", "lon"])
-        for (address, apt), group in located.groupby(["address", "apartment"]):
-            points.append(dict(address=address, apartment=apt, kind=kind,
+        for (region, dong, address, apt), group in located.groupby(APARTMENT_KEYS):
+            median = f"{group['price_eok'].median():.2f}"
+            points.append(dict(region_code=region, dong=dong, address=address, apartment=apt, kind=kind,
                                lat=float(group["lat"].median()), lon=float(group["lon"].median()),
-                               count=len(group), median_price=f"{group['price_eok'].median():.2f}", color=color,
+                               count=len(group), median_price=median, color=color,
+                               summary=f"매물 호가 {len(group)}건 · 중위 {median}억원",
                                radius=65 + min(len(group), 40) * 5))
     return points
 

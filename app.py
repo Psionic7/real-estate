@@ -5,11 +5,12 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from estate.analytics import (active_listings, comparable_gap, export_csv, filter_common,
+from estate.analytics import (active_listings, apartment_stats, apartment_sample, comparable_gap, export_csv, filter_common,
                               load_data, map_points, monthly_stats, within_radius)
 from estate.config import ROOT, db_path, service_key
 from estate.collection_ui import render_collection, render_archive
 from estate.db import connect, initialize
+from estate.dashboard import render_dashboard, render_apartment_detail
 from estate.geocode import geocode_pending
 from estate.listings import import_rows, parse_payload
 from estate.maps import DEFAULT_REGION, housing_deck
@@ -127,8 +128,7 @@ freshness = st.sidebar.slider("매물 확인 유효기간 (일)", 1, 60, 7)
 st.sidebar.caption("최근 확인된 active 매물만 집계합니다. 실거래 계약 기간과 매물 확인 기간은 별개입니다.")
 
 st.title("집의 흐름")
-st.markdown("지역의 거래와 지금의 호가를, 지도 위에서 한눈에.")
-st.info("실제 데이터 · 수집된 지역·기간과 제공처 범위 안에서만 집계됩니다.")
+st.markdown(f"**{LABELS.get(region, region)}** · 아파트별 실거래를 대시보드와 지도에서 한눈에.")
 
 trades = trades[trades["cancelled"] == 0].copy()
 live = active_listings(listings, freshness)
@@ -155,33 +155,40 @@ if st.sidebar.checkbox("반경으로 범위 좁히기", key="radius_enabled"):
         filtered_listings = within_radius(filtered_listings, center["lat"], center["lon"], radius)
         st.caption(f"반경 범위: {center['apartment']}에서 {radius:.1f}km · 좌표가 없는 데이터는 제외")
 
+apartments = apartment_stats(filtered_trades)
 a, b, c, d = st.columns(4)
 a.metric("실거래 건수", f"{len(filtered_trades):,}건")
 b.metric("실거래 중위가격", f"{filtered_trades['price_eok'].median():.2f}억원" if len(filtered_trades) else "—")
-c.metric("현재 매물 관측 수", f"{len(filtered_listings):,}건")
-d.metric("매물 중위호가", f"{filtered_listings['price_eok'].median():.2f}억원" if len(filtered_listings) else "—")
-st.caption("해제 거래 제외 · 매물 수는 제공처별 매물ID 기준이며 동일 주택의 중복 광고가 포함될 수 있습니다.")
+c.metric("거래된 아파트", f"{len(apartments):,}개")
+total_price = filtered_trades['price_eok'].sum()
+d.metric("실거래 총액", f"{total_price / 10000:.2f}조원" if total_price >= 10000 else f"{total_price:,.0f}억원",
+         help=f"{total_price:,.1f}억원")
+st.caption("국토부 실거래 자료 · 해제 거래 제외 · 선택한 기간·면적·가격 범위 기준")
 
-map_tab, stats_tab, table_tab, manage_tab = st.tabs(["지도 탐색", "지역 통계", "거래·매물 내역", "데이터 관리"])
+dashboard_tab, map_tab, stats_tab, table_tab, manage_tab = st.tabs(
+    ["아파트 대시보드", "지도 탐색", "지역 통계", "거래·매물 내역", "데이터 관리"])
+with dashboard_tab:
+    render_dashboard(apartments, filtered_trades, LABELS.get(region, region))
 with map_tab:
     st.subheader("거래가 쌓인 곳, 매물이 나온 곳")
     st.caption("청록: 실거래 / 주황: 매물 호가 · 원의 크기: 관측 수 · 원을 클릭하면 해당 주소·단지의 상세가 표시됩니다.")
     points = map_points(filtered_trades, filtered_listings)
+    show_labels = st.checkbox("지도에 아파트명·중위가격·거래수 표시", value=True, key="map_labels")
+    st.caption("가격 라벨은 거래가 많은 최대 100개 단지에 표시합니다. 겹치면 지도를 확대하거나 라벨을 꺼 주세요.")
     missing = sum(frame[["lat", "lon"]].isna().any(axis=1).sum()
                   for frame in (filtered_trades, filtered_listings))
     st.caption(f"지도 표시 {len(points):,}개 그룹 / 좌표 미확정 {missing:,}건 (반경 필터가 없으면 지역 통계에는 포함)")
     if len(points) > 5000:
         st.warning("지도는 최대 5,000개 그룹을 표시합니다. 지역·검색·반경 필터로 범위를 좁히세요.")
-    event = st.pydeck_chart(housing_deck(points, region), height=510,
+    event = st.pydeck_chart(housing_deck(points, region, show_labels), height=510,
                            on_select="rerun", selection_mode="single-object",
                            key=f"housing_map_{region}_{query}")
     selected = [item for group in event.selection.get("objects", {}).values() for item in group]
     if selected:
         item = selected[0]
-        st.markdown(f"**선택 단지: {item['apartment']}**")
-        st.caption(item["address"])
+        render_apartment_detail(apartment_sample(filtered_trades, item), "map_selected")
         for frame, is_listing in [(filtered_trades, False), (filtered_listings, True)]:
-            subset = frame[(frame["address"] == item["address"]) & (frame["apartment"] == item["apartment"])]
+            subset = apartment_sample(frame, item)
             st.write("현재 매물" if is_listing else "실거래 내역")
             show_table(subset, is_listing, f"selected_{is_listing}")
     elif points:
