@@ -46,7 +46,7 @@ def housing_deck(points, region, show_labels=True):
                 get_text_anchor="middle", get_alignment_baseline="bottom",
                 background=True, get_background_color=[255, 255, 255, 230],
                 background_padding=[5, 3], font_family="Arial, 'Malgun Gothic', sans-serif",
-                character_set=characters, pickable=True,
+                character_set=list(characters), pickable=True,
             ))
     return pdk.Deck(
         map_provider="carto", map_style="road",
