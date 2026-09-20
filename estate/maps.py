@@ -25,15 +25,13 @@ def housing_deck(points, region, show_labels=True):
     else:
         lat, lon, zoom = REGION_VIEWS.get(region, (36.3, 127.8, 7))
     shown = points[:5000]
-    layers = [
-        pdk.Layer("ScatterplotLayer", data=[p for p in shown if p["kind"] == kind],
-                  id=layer_id, get_position="[lon, lat]", get_fill_color="color",
-                  get_radius="radius", radius_min_pixels=min_pixels, radius_max_pixels=max_pixels,
-                  stroked=True, get_line_color=[255, 255, 255, 230], line_width_min_pixels=2,
-                  pickable=True, auto_highlight=True)
-        for kind, layer_id, min_pixels, max_pixels in [("지역 요약", "region-summary", 34, 55),
-                                                      ("아파트", "apartments", 16, 38)]
-    ]
+    layers = [pdk.Layer(
+        "ScatterplotLayer", data=shown, id="apartments",
+        get_position="[lon, lat]", get_fill_color="color", get_radius="radius",
+        radius_min_pixels=16, radius_max_pixels=38, stroked=True,
+        get_line_color=[255, 255, 255, 230], line_width_min_pixels=2,
+        pickable=True, auto_highlight=True,
+    )]
     if show_labels:
         labels = sorted((p for p in shown if "label" in p),
                         key=lambda p: p["count"], reverse=True)[:100]

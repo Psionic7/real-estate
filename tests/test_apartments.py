@@ -32,7 +32,7 @@ def test_summary_keeps_unlocated_trades_and_latest_day_median():
     assert "계산 기간 2026-06~2026-08" in points[0]["summary"]
     deck = housing_deck(points, "41465")
     assert deck.layers[-1].id == "apartment-labels"
-    assert len(housing_deck(points, "41465", False).layers) == 2
+    assert len(housing_deck(points, "41465", False).layers) == 1
 
 
 def test_equal_names_different_addresses_and_regions_are_not_merged():
@@ -42,8 +42,7 @@ def test_equal_names_different_addresses_and_regions_are_not_merged():
     assert len(summary) == 3
     assert len(apartment_sample(trades, summary.iloc[0])) == 1
     points = map_price_points(trades, {"41465": (37.32, 127.09, 12), "41135": (37.38, 127.12, 12)})
-    assert len(points) == 2
-    assert all(point["kind"] == "지역 요약" for point in points)
+    assert points == []
 
 
 def test_cancelled_only_and_empty_samples_have_no_apartment_stats():

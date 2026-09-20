@@ -174,16 +174,16 @@ with dashboard_tab:
     render_dashboard(apartments, filtered_trades, LABELS.get(region, region))
 with map_tab:
     st.subheader("지도 위 최근 실거래 평균")
-    st.caption("청록: 좌표가 확인된 아파트 · 파랑: 좌표가 없을 때의 선택 지역 전체 요약. 원을 선택하면 계산 표본을 확인할 수 있습니다.")
+    st.caption("지도에는 좌표가 확인된 개별 아파트만 표시합니다. 원을 선택하면 해당 단지의 계산 표본을 확인할 수 있습니다.")
     map_trades = filter_common(load_map_trades(path, region), region, area, price, query)
     points = map_price_points(map_trades, REGION_VIEWS)
     show_labels = st.checkbox("지도에 평균가격 표시", value=True, key="map_labels")
     st.caption("지도 숫자의 단위는 억원입니다. 최근 3개 계약월의 산술평균이며, 거래가 없으면 단지의 최근 거래월 평균과 계산 기간을 표시합니다.")
     map_apartments = map_trades.groupby(["region_code", "dong", "address", "apartment"], dropna=False)
     missing = sum(group[["lat", "lon"]].isna().all(axis=1).all() for _, group in map_apartments)
-    st.caption(f"지도 오버레이 {len(points):,}개 / 좌표 미확정 아파트 {missing:,}개")
-    if missing and not any(point["kind"] == "아파트" for point in points):
-        st.info("단지 좌표가 아직 없습니다. 선택 지역 중심에 지역 평균을 표시하며, 주소 좌표가 저장되면 아파트별 오버레이로 바뀝니다.")
+    st.caption(f"표시된 아파트 {len(points):,}개 / 좌표 미확정 아파트 {missing:,}개")
+    if missing and not points:
+        st.info("현재 조건에 맞는 아파트 중 좌표가 확인된 단지가 없습니다. 데이터 관리에서 주소 좌표를 수집하면 개별 아파트가 지도에 표시됩니다.")
     if len(points) > 5000:
         st.warning("지도는 최대 5,000개 그룹을 표시합니다. 지역·검색·반경 필터로 범위를 좁히세요.")
     event = st.pydeck_chart(housing_deck(points, region, show_labels), height=510,
@@ -194,19 +194,16 @@ with map_tab:
         item = selected[0]
         st.markdown(f"**{item['apartment']} · 평균 {item['average_price']:.2f}억원**")
         st.caption(f"{item['period_kind']} · 계산 기간 {item['period']} · 실거래 {item['count']:,}건")
-        if item["kind"] == "아파트":
-            subset = apartment_sample(map_trades, item)
-            st.markdown("**평균 계산에 포함된 실거래**")
-            show_table(subset.sort_values("deal_date", ascending=False), key="map_sample")
-        else:
-            st.info("현재 단지 좌표가 없어 선택 지역 중심에 전체 평균을 표시합니다. 주소 좌표를 수집하면 아파트별 오버레이로 자동 전환됩니다.")
+        subset = apartment_sample(map_trades, item)
+        st.markdown("**평균 계산에 포함된 실거래**")
+        show_table(subset.sort_values("deal_date", ascending=False), key="map_sample")
     elif points:
         st.info("지도 원을 선택하면 단지의 실거래와 현재 매물을 함께 살펴볼 수 있습니다.")
     else:
         st.info("현재 조건에 맞는 거래·매물이 없습니다. 지역·기간·검색 조건을 조정하거나 데이터 관리에서 수집하세요.")
     if not points and region not in {"41465", "41135", "41117", "11680", "11710", "11440", "26350", "전체"}:
         st.caption("이 지역은 아직 지도 중심 좌표가 없어 전국 지도로 표시합니다.")
-    st.caption("지도 평균은 왼쪽 면적·가격·검색 조건을 따르며 계약 기간 필터와는 별개로 최근 3개 계약월을 계산합니다. 지도 이동·확대는 통계 범위를 바꾸지 않습니다.")
+    st.caption("지도 평균은 왼쪽 면적·가격·검색 조건을 따르며 계약 기간 필터와는 별개로 최근 3개 계약월을 계산합니다. 지도 이동·확대는 통계 범위를 바꾸지 않습니다. 지도 좌표 일부: © OpenStreetMap contributors (ODbL).")
 
 with stats_tab:
     st.subheader("가격과 거래량의 흐름")

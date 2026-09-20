@@ -51,7 +51,7 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     assert any("최소 거래수를 만족" in message.value for message in app.info)
     app.number_input(key="apartment_min_count").set_value(1).run()
     assert len(app.get("deck_gl_json_chart")) == 1
-    assert any("단지 좌표가 아직 없습니다" in message.value for message in app.info)
+    assert any("좌표가 확인된 단지가 없습니다" in message.value for message in app.info)
     app.text_input(key="search").set_value("NO SUCH APARTMENT").run()
     assert not app.exception
     assert app.metric[0].value == "0건"

@@ -162,8 +162,12 @@ def apartment_sample(trades, apartment):
     return trades[mask].copy()
 
 
-def map_price_points(trades, region_views):
-    """Map overlays with apartment coordinates and a guaranteed regional summary."""
+def map_price_points(trades, region_views=None):
+    """Build one overlay per apartment with a verified coordinate.
+
+    ``region_views`` is retained for callers that still pass camera defaults.  A
+    camera position is never emitted as a property marker.
+    """
     points = []
     trades = trades[trades["cancelled"] == 0]
     if trades.empty:
@@ -182,23 +186,6 @@ def map_price_points(trades, region_views):
             color=[8, 127, 140, 225], radius=85 + min(count, 30) * 7,
             label=f"{average:.2f}",
             summary=f"{kind} 평균 {average:.2f}억원 · {count}건\n계산 기간 {period}"))
-    regions_with_apartments = {p["region_code"] for p in points}
-    for region_code, group in trades.groupby("region_code"):
-        if region_code in regions_with_apartments or region_code not in region_views:
-            continue
-        recent = group[group["period_kind"] == "최근 3개월"]
-        sample = recent if not recent.empty else group[group["deal_month"] == group["deal_month"].max()]
-        if sample.empty:
-            continue
-        average, count = sample["price_eok"].mean(), len(sample)
-        start, end, kind = sample.iloc[0][["period_start", "period_end", "period_kind"]]
-        period = start if start == end else f"{start}~{end}"
-        lat, lon, _ = region_views[region_code]
-        points.append(dict(region_code=region_code, dong="", address="", apartment="지역 전체 요약",
-            kind="지역 요약", lat=lat, lon=lon, count=count, average_price=average,
-            period=period, period_kind=kind, color=[38, 72, 120, 235], radius=650,
-            label=f"{average:.2f}",
-            summary=f"{kind} 평균 {average:.2f}억원 · {count:,}건\n계산 기간 {period}"))
     return points
 
 
