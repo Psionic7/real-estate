@@ -6,6 +6,21 @@ import pandas as pd
 from estate.db import connect
 
 
+APARTMENT_DISPLAY_NAMES = {
+    "경기도 용인시 수지구 풍덕천동 693": "수지삼성1차",
+}
+
+
+def canonicalize_apartment_names(frame):
+    """Use familiar complex names in the UI while preserving provider values in SQLite."""
+    if frame.empty or "address" not in frame or "apartment" not in frame:
+        return frame
+    frame = frame.copy()
+    for address, display_name in APARTMENT_DISPLAY_NAMES.items():
+        frame.loc[frame["address"] == address, "apartment"] = display_name
+    return frame
+
+
 def load_data(path, region=None, start=None, end=None):
     trade_where, trade_params = ["1=1"], []
     listing_where, listing_params = ["1=1"], []
@@ -31,6 +46,8 @@ def load_data(path, region=None, start=None, end=None):
             SELECT r.*, COALESCE(r.latitude,g.latitude) AS lat, COALESCE(r.longitude,g.longitude) AS lon
             FROM ranked r LEFT JOIN geocodes g ON r.address=g.address
             WHERE r.rn=1 AND {' AND '.join(listing_where)}""", conn, params=listing_params)
+    trades = canonicalize_apartment_names(trades)
+    listings = canonicalize_apartment_names(listings)
     for df in (trades, listings):
         df["price_eok"] = df["price_man"] / 10000
         df["price_per_m2"] = df["price_man"] / df["area_m2"]
@@ -86,6 +103,7 @@ def load_map_trades(path, region=None):
     """
     with connect(path) as conn:
         trades = pd.read_sql_query(query, conn, params=params)
+    trades = canonicalize_apartment_names(trades)
     trades["price_eok"] = trades["price_man"] / 10000
     trades["price_per_pyeong"] = trades["price_man"] / trades["area_m2"] * 3.305785
     return trades

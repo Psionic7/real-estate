@@ -1,7 +1,8 @@
 import pandas as pd
 import pytest
 
-from estate.analytics import apartment_stats, apartment_sample, map_price_points
+from estate.analytics import (apartment_stats, apartment_sample, canonicalize_apartment_names,
+                              map_price_points)
 from estate.maps import housing_deck
 
 
@@ -81,3 +82,12 @@ def test_map_combines_active_listings_and_keeps_listing_only_apartments():
     assert by_name["매물전용"]["label"] == "매물 1"
     deck = housing_deck(points, "41465")
     assert deck.layers[0].id == "active-listings"
+
+
+def test_provider_name_is_canonicalized_for_suji_samsung_first():
+    frame = pd.DataFrame([{
+        "region_code": "41465", "dong": "풍덕천동",
+        "address": "경기도 용인시 수지구 풍덕천동 693", "apartment": "삼성1",
+    }])
+    assert canonicalize_apartment_names(frame).iloc[0]["apartment"] == "수지삼성1차"
+    assert frame.iloc[0]["apartment"] == "삼성1"
