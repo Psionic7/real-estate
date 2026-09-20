@@ -42,9 +42,9 @@ def housing_deck(points, region, show_labels=True):
                 "TextLayer", id="apartment-labels", data=labels,
                 get_position="[lon, lat]", get_text="label", get_size=13,
                 get_color=[23, 43, 77], get_pixel_offset=[0, -30],
-                get_text_anchor="middle", get_alignment_baseline="bottom",
+                get_text_anchor="'middle'", get_alignment_baseline="'bottom'",
                 background=True, get_background_color=[255, 255, 255, 230],
-                background_padding=[5, 3], font_family="Arial, sans-serif", pickable=True,
+                background_padding=[5, 3], font_family="'Arial'", pickable=True,
             ))
     return pdk.Deck(
         map_provider="carto", map_style="road",
