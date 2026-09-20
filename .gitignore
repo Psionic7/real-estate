@@ -217,6 +217,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Local credentials (never commit)
+api-key.txt
+일반인증키.txt
+엔드포인트.txt
+
 
 # common
 *.lock

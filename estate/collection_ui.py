@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -37,6 +38,9 @@ def job_status(path):
 
 def render_collection(path):
     st.markdown("**관심 지역과 자동 수집**")
+    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("IS_STREAMLIT_CLOUD"):
+        st.warning("Community Cloud의 SQLite 변경은 앱 재시작·재배포 때 초기화될 수 있습니다. "
+                   "웹 즉시 수집은 현재 실행 중인 인스턴스에 반영되며, 영구 자동 수집은 로컬 Windows 작업이 담당합니다.")
     st.caption("기본값: 용인 수지·성남 분당·수원 광교 / 매일 오전 6시(한국시간) / 최근 12개월. 저장한 지역만 자동 수집합니다.")
     st.caption("수원 광교 기본 범위는 이의동·하동·원천동 전체입니다. API는 영통구 전체를 반환하며, 분석 데이터는 선택한 법정동으로 제한합니다.")
     saved = targets(path)

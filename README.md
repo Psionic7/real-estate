@@ -1,7 +1,7 @@
 # 집의 흐름 — 한국 아파트 데이터 지도
 
 Windows · Python · Streamlit · SQLite로 만든 아파트 매매 실거래·매물 분석 MVP입니다.
-**API 키 없이 합성 데모로 바로 실행됩니다.** 실제 공공데이터와 현재 매물의 연결은 별도 설정이 필요합니다.
+**API 키 없이 합성 데모로 바로 실행됩니다.** 저장소에는 용인 수지·성남 분당·수원 광교의 실제 공공데이터 초기 스냅샷도 포함됩니다.
 
 ## 바로 실행
 
@@ -49,7 +49,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Python "C:\Python3
 
 ## 실제 데이터 연결
 
-1. `.env.example`을 `.env`로 복사합니다.
+1. `.env.example`을 `.env`로 복사하거나 로컬에서는 `api-key.txt`를 사용합니다.
 2. 공공데이터포털에서 [아파트 매매 실거래가 상세 자료](https://www.data.go.kr/data/15126468/openapi.do)를 신청하고 `MOLIT_SERVICE_KEY`를 설정합니다.
 3. 주소 좌표가 필요하면 [카카오 로컬 API](https://developers.kakao.com/docs/ko/local/dev-guide) REST API 키를 `KAKAO_REST_API_KEY`에 설정합니다.
 4. 앱을 다시 시작하고 ‘실제 데이터 → 데이터 관리’에서 수집합니다. 먼저 한 지역·한 달로 검증하세요.
@@ -106,3 +106,18 @@ KAKAO_REST_API_KEY=발급받은REST키
 - `requirements-lock.txt`: 검증 환경의 전체 패키지 버전
 
 네트워크 공유 폴더가 아닌 로컬 디스크에 SQLite를 두고, 첫 운영은 단일 PC·단일 수집 작업으로 시작합니다.
+
+## Streamlit Community Cloud 배포
+
+배포 진입점은 `app.py`, Python은 3.12를 사용합니다. Community Cloud의 Advanced settings → Secrets에 다음 값을 입력합니다.
+
+```toml
+MOLIT_SERVICE_KEY = "재발급한 일반 인증키"
+MOLIT_ENDPOINT = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade"
+IS_STREAMLIT_CLOUD = "1"
+```
+
+`api-key.txt`와 `.streamlit/secrets.toml`은 Git에서 제외됩니다. Community Cloud의 로컬 파일시스템은 영구 저장소가 아니므로,
+웹에서 즉시 수집한 SQLite 변경은 앱 재시작·재배포 때 저장소의 초기 스냅샷으로 돌아갈 수 있습니다.
+Windows 작업 스케줄러가 영구 수집 DB를 관리하며, 클라우드는 조회와 일시적 즉시 수집을 제공합니다.
+영구 클라우드 수집이 필요하면 다음 단계에서 관리형 PostgreSQL로 DB 계층을 교체해야 합니다.
