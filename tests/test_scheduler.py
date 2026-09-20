@@ -1,4 +1,6 @@
 import json
+import gzip
+import shutil
 from datetime import datetime, timezone
 from unittest.mock import Mock
 
@@ -33,6 +35,24 @@ def test_config_files_and_endpoint_normalization(tmp_path, monkeypatch):
     monkeypatch.setenv("MOLIT_ENDPOINT", "https://evil.example/collect")
     with pytest.raises(ValueError):
         api_endpoint()
+
+
+def test_packaged_baseline_replaces_legacy_empty_database(tmp_path, monkeypatch):
+    import estate.config as config
+    source = tmp_path / "source.sqlite3"
+    initialize(source)
+    with connect(source) as conn:
+        conn.execute("INSERT INTO metadata VALUES('baseline_range','200001-202609')")
+    data_dir = tmp_path / "runtime"
+    data_dir.mkdir()
+    runtime = data_dir / "estate.sqlite3"
+    initialize(runtime)
+    with source.open("rb") as raw, gzip.open(data_dir / "estate.sqlite3.gz", "wb") as packed:
+        shutil.copyfileobj(raw, packed)
+    monkeypatch.setenv("REAL_ESTATE_DATA_DIR", str(data_dir))
+    assert config.db_path() == runtime
+    with connect(runtime) as conn:
+        assert conn.execute("SELECT value FROM metadata WHERE key='baseline_range'").fetchone()[0] == "200001-202609"
 
 
 def test_defaults_daily_kst_and_idempotent(scheduled_db):

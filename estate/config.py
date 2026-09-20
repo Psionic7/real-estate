@@ -1,6 +1,7 @@
 import gzip
 import os
 import shutil
+import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,17 +16,31 @@ def data_dir() -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+def has_historical_baseline(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        try:
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key='baseline_range'").fetchone()
+            return bool(row)
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return False
+
+
 def db_path() -> Path:
     path = data_dir() / "estate.sqlite3"
     packaged = path.with_suffix(path.suffix + ".gz")
-    if not path.exists() and packaged.exists():
+    if packaged.exists() and not has_historical_baseline(path):
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
             with gzip.open(packaged, "rb") as source, temporary.open("wb") as target:
                 shutil.copyfileobj(source, target)
-            if not path.exists():
-                os.replace(temporary, path)
+            os.replace(temporary, path)
         finally:
             temporary.unlink(missing_ok=True)
     return path
