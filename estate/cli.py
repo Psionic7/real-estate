@@ -5,7 +5,6 @@ from pathlib import Path
 
 from estate.config import db_path, service_key
 from estate.db import backup, connect, initialize
-from estate.demo import seed
 from estate.geocode import geocode_pending
 from estate.listings import fetch_feed, import_rows, parse_payload
 from estate.molit import collect, months_between
@@ -16,7 +15,6 @@ def main():
     parser.add_argument("--db", type=Path, help="명시적 DB 경로 (기본: 실제 데이터 DB)")
     subs = parser.add_subparsers(dest="command", required=True)
     subs.add_parser("init")
-    subs.add_parser("demo")
     trade = subs.add_parser("collect")
     trade.add_argument("--region", required=True)
     trade.add_argument("--region-name", required=True)
@@ -35,23 +33,14 @@ def main():
     save.add_argument("destination", type=Path)
     subs.add_parser("status")
     args = parser.parse_args()
-    path = args.db or db_path(args.command == "demo")
-    # Separate synthetic and actual stores, including explicit --db use.
-    if args.command == "demo" and path.resolve() == db_path(False).resolve():
-        parser.error("실제 DB 경로에 데모를 만들 수 없습니다.")
+    path = args.db or db_path()
     initialize(path)
     with connect(path) as conn:
         is_demo = conn.execute("SELECT 1 FROM metadata WHERE key='demo_seeded'").fetchone() is not None
-        occupied = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0] + conn.execute("SELECT COUNT(*) FROM listing_snapshots").fetchone()[0]
     if is_demo and args.command in {"collect", "refresh", "import-listings", "fetch-listings", "geocode"}:
         parser.error("데모 DB에는 실제 데이터를 저장할 수 없습니다.")
-    if args.command == "demo" and occupied and not is_demo:
-        parser.error("기존 데이터가 있는 DB에는 데모를 만들 수 없습니다.")
     try:
-        if args.command == "demo":
-            seed(path)
-            print(f"Demo ready: {path}")
-        elif args.command in {"collect", "refresh"}:
+        if args.command in {"collect", "refresh"}:
             if args.command == "refresh":
                 if not 1 <= args.months <= 120:
                     raise ValueError("months 범위는 1~120입니다.")

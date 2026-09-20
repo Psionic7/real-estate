@@ -2,17 +2,18 @@ from estate.db import connect, now_iso
 from estate.http import DataSourceError, get, session
 
 
-def geocode_pending(path, key, limit=100):
+def geocode_pending(path, key, limit=100, region=None):
     if not key.strip():
         raise ValueError("KAKAO_REST_API_KEY를 설정하세요.")
     with connect(path) as conn:
         addresses = conn.execute("""
             SELECT DISTINCT a.address FROM (
-                SELECT address FROM trades WHERE latitude IS NULL
-                UNION SELECT address FROM listing_snapshots WHERE latitude IS NULL
+                SELECT address,region_code FROM trades WHERE latitude IS NULL OR longitude IS NULL
+                UNION SELECT address,region_code FROM listing_snapshots WHERE latitude IS NULL OR longitude IS NULL
             ) a LEFT JOIN geocodes g ON a.address=g.address
-            WHERE g.address IS NULL AND a.address != '' ORDER BY a.address LIMIT ?
-        """, (limit,)).fetchall()
+            WHERE g.address IS NULL AND a.address != '' AND (? IS NULL OR a.region_code=?)
+            ORDER BY a.address LIMIT ?
+        """, (region, region, limit)).fetchall()
     matched, unresolved = 0, 0
     with session() as client:
         for row in addresses:

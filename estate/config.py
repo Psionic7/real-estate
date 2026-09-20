@@ -13,8 +13,8 @@ def data_dir() -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-def db_path(demo: bool = False) -> Path:
-    return data_dir() / ("demo.sqlite3" if demo else "estate.sqlite3")
+def db_path() -> Path:
+    return data_dir() / "estate.sqlite3"
 
 
 def read_setting(env_name, filenames, default=""):

@@ -70,7 +70,7 @@ CSV는 UTF-8(BOM 허용), 첫 행은 아래 영문 열 이름. JSON은 같은 �
 | listing_snapshots | 관측시각별 가격·상태. UNIQUE(source, listing_id, observed_at) |
 | geocodes | address 기본키, 좌표·provider·updated_at |
 | collection_runs | 시작/종료 시각, 범위, 성공/실패/진행, 반영 건수 |
-| metadata | key/value; demo_seeded 기준일 |
+| metadata | key/value; 관심 지역 초기 설정 여부 등 운영 메타데이터 |
 
 SQLite `user_version=1`. 스키마 변경 시 다음 버전의 명시적 마이그레이션을 추가한다.
 `trades.raw_json`은 받은 item 필드 전체이며 XML 원문 자체나 과거 수집 회차 전체를 보존하는 저장소는 아니다.

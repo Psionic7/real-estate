@@ -1,7 +1,7 @@
 # 집의 흐름 — 한국 아파트 데이터 지도
 
 Windows · Python · Streamlit · SQLite로 만든 아파트 매매 실거래·매물 분석 MVP입니다.
-**API 키 없이 합성 데모로 바로 실행됩니다.** 저장소에는 용인 수지·성남 분당·수원 광교의 실제 공공데이터 초기 스냅샷도 포함됩니다.
+**실제 공공데이터만 사용하며 첫 화면은 용인시 수지구입니다.** 저장소에는 용인 수지·성남 분당·수원 광교의 실거래 초기 스냅샷이 포함됩니다.
 
 ## 바로 실행
 
@@ -11,7 +11,7 @@ Windows · Python · Streamlit · SQLite로 만든 아파트 매매 실거래·�
 .\run.bat
 ```
 
-브라우저에서 http://localhost:8501 에 접속합니다. 왼쪽에서 데모/실제 데이터를 전환합니다.
+브라우저에서 http://localhost:8501 에 접속합니다. 왼쪽 지역 필터로 조회 범위를 변경합니다.
 명령으로 직접 실행하려면:
 
 ```powershell
@@ -44,7 +44,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Python "C:\Python3
 - 실거래 중위가격, 거래량, 평당가격, 법정동·월별 통계, 유사 면적 호가 비교
 - UTF-8 BOM CSV 내려받기, 수집 범위/기록 조회, SQLite 온라인 백업
 
-현재 범위는 **아파트 매매**입니다. 전월세·오피스텔·토지, 임의 매물 사이트 크롤러, 사용자 계정과 외부 공개 배포는 포함하지 않습니다.
+현재 범위는 **아파트 매매**입니다. 전월세·오피스텔·토지, 임의 매물 사이트 크롤러, 사용자 계정은 포함하지 않습니다.
 지도 배경 타일에는 인터넷 연결이 필요합니다.
 
 ## 실제 데이터 연결
@@ -52,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Python "C:\Python3
 1. `.env.example`을 `.env`로 복사하거나 로컬에서는 `api-key.txt`를 사용합니다.
 2. 공공데이터포털에서 [아파트 매매 실거래가 상세 자료](https://www.data.go.kr/data/15126468/openapi.do)를 신청하고 `MOLIT_SERVICE_KEY`를 설정합니다.
 3. 주소 좌표가 필요하면 [카카오 로컬 API](https://developers.kakao.com/docs/ko/local/dev-guide) REST API 키를 `KAKAO_REST_API_KEY`에 설정합니다.
-4. 앱을 다시 시작하고 ‘실제 데이터 → 데이터 관리’에서 수집합니다. 먼저 한 지역·한 달로 검증하세요.
+4. 앱을 다시 시작하고 ‘데이터 관리’에서 수집합니다. 먼저 한 지역·한 달로 검증하세요.
 5. 매물 제공처의 사용 가능한 파일을 표준 양식에 맞춰 가져옵니다. 기본 양식은 `examples/listings_template.csv`, 상세 명세는 [데이터 명세](docs/DATA_CONTRACT.md)를 참고합니다.
 
 ```dotenv
@@ -60,8 +60,15 @@ MOLIT_SERVICE_KEY=발급받은키
 KAKAO_REST_API_KEY=발급받은REST키
 ```
 
-키는 커밋하지 않습니다. DB는 `data/estate.sqlite3`, 데모는 `data/demo.sqlite3`입니다.
-실제 모드는 빈 DB로 시작합니다. 데모의 단지명·가격·위치는 모두 합성이고 실제 매물·시세가 아닙니다.
+키는 커밋하지 않습니다. DB는 `data/estate.sqlite3` 하나를 사용합니다. 새 DB가 비어 있어도 수지구 배경지도와 수집 화면을 표시합니다.
+
+### 지도에 거래 원이 없는 경우
+
+국토부 실거래 API 응답에는 단지 위도·경도가 없으므로 주소 좌표 변환이 별도로 필요합니다.
+배경지도는 좌표 유무와 관계없이 표시하며, 정확한 좌표가 없는 거래는 통계·내역에만 포함합니다.
+`KAKAO_REST_API_KEY`를 환경변수 또는 Streamlit Secrets에 설정하고, **데이터 관리 → 주소를 지도 좌표로 변환**을 실행하세요.
+좌표 수집은 왼쪽에서 선택한 지역을 대상으로 하며 성공한 주소는 SQLite에 캐시합니다.
+지도 중심 기본값은 화면 이동용이며 단지 좌표로 사용하지 않습니다. 검색 결과가 없어도 배경지도는 유지됩니다.
 
 ## 수집 명령
 
@@ -112,9 +119,11 @@ KAKAO_REST_API_KEY=발급받은REST키
 배포 진입점은 `app.py`, Python은 3.12를 사용합니다. Community Cloud의 Advanced settings → Secrets에 다음 값을 입력합니다.
 
 ```toml
-MOLIT_SERVICE_KEY = "재발급한 일반 인증키"
+MOLIT_SERVICE_KEY = "발급받은 일반 인증키"
 MOLIT_ENDPOINT = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade"
 IS_STREAMLIT_CLOUD = "1"
+# 단지 위치 표시를 위한 주소 좌표 수집용 (실거래 인증키와 별개)
+KAKAO_REST_API_KEY = "발급받은 카카오 REST API 키"
 ```
 
 `api-key.txt`와 `.streamlit/secrets.toml`은 Git에서 제외됩니다. Community Cloud의 로컬 파일시스템은 영구 저장소가 아니므로,
