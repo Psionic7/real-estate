@@ -37,14 +37,17 @@ def housing_deck(points, region, show_labels=True):
     if show_labels:
         labels = sorted((p for p in shown if "label" in p),
                         key=lambda p: p["count"], reverse=True)[:100]
-        layers.append(pdk.Layer(
-            "TextLayer", id="apartment-labels", data=labels,
-            get_position="[lon, lat]", get_text="label", get_size=13,
-            get_color=[23, 43, 77], get_pixel_offset=[0, -30],
-            get_text_anchor="middle", get_alignment_baseline="bottom",
-            background=True, get_background_color=[255, 255, 255, 230],
-            background_padding=[5, 3], font_family="sans-serif", pickable=True,
-        ))
+        if labels:
+            characters = "".join(sorted(set("".join(point["label"] for point in labels))))
+            layers.append(pdk.Layer(
+                "TextLayer", id="apartment-labels", data=labels,
+                get_position="[lon, lat]", get_text="label", get_size=13,
+                get_color=[23, 43, 77], get_pixel_offset=[0, -30],
+                get_text_anchor="middle", get_alignment_baseline="bottom",
+                background=True, get_background_color=[255, 255, 255, 230],
+                background_padding=[5, 3], font_family="Arial, 'Malgun Gothic', sans-serif",
+                character_set=characters, pickable=True,
+            ))
     return pdk.Deck(
         map_provider="carto", map_style="road",
         initial_view_state=pdk.ViewState(latitude=lat, longitude=lon, zoom=zoom),

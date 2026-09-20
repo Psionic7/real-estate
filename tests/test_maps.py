@@ -15,6 +15,7 @@ def test_map_uses_real_points_and_preserves_basemap_when_empty():
     deck = json.loads(housing_deck([point], "41465").to_json())
     assert deck["initialViewState"]["latitude"] == point["lat"]
     assert deck["layers"][1]["data"] == [point]
+    assert set("A10.00억").issubset(set(deck["layers"][2]["characterSet"]))
     empty = json.loads(housing_deck([], "41465").to_json())
     assert empty["mapProvider"] == "carto"
     assert empty["mapStyle"]
