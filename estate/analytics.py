@@ -162,30 +162,59 @@ def apartment_sample(trades, apartment):
     return trades[mask].copy()
 
 
-def map_price_points(trades, region_views=None):
+def map_price_points(trades, region_views=None, listings=None):
     """Build one overlay per apartment with a verified coordinate.
 
     ``region_views`` is retained for callers that still pass camera defaults.  A
     camera position is never emitted as a property marker.
     """
     points = []
+    listing_groups = {}
+    if listings is not None and not listings.empty:
+        for keys, group in listings.groupby(APARTMENT_KEYS, dropna=False):
+            located = group.dropna(subset=["lat", "lon"])
+            if located.empty:
+                continue
+            listing_groups[keys] = {
+                "count": len(group),
+                "median": float(group["price_eok"].median()),
+                "lat": float(located["lat"].median()),
+                "lon": float(located["lon"].median()),
+            }
     trades = trades[trades["cancelled"] == 0]
-    if trades.empty:
-        return points
+    trade_keys = set()
     for keys, group in trades.groupby(APARTMENT_KEYS, dropna=False):
         located = group.dropna(subset=["lat", "lon"])
         if located.empty:
             continue
+        trade_keys.add(keys)
         region, dong, address, apartment = keys
         average, count = group["price_eok"].mean(), len(group)
         start, end, kind = group.iloc[0][["period_start", "period_end", "period_kind"]]
         period = start if start == end else f"{start}~{end}"
+        listing = listing_groups.get(keys)
+        listing_count = listing["count"] if listing else 0
+        listing_median = listing["median"] if listing else None
+        listing_text = (f" · 활성 매물 {listing_count}건, 중위 {listing_median:.2f}억원"
+                        if listing else " · 활성 매물 없음")
         points.append(dict(region_code=region, dong=dong, address=address, apartment=apartment,
             kind="아파트", lat=float(located["lat"].median()), lon=float(located["lon"].median()),
             count=count, average_price=average, period=period, period_kind=kind,
+            listing_count=listing_count, listing_median=listing_median,
             color=[8, 127, 140, 225], radius=85 + min(count, 30) * 7,
             label=f"{average:.2f}",
-            summary=f"{kind} 평균 {average:.2f}억원 · {count}건\n계산 기간 {period}"))
+            summary=f"{kind} 평균 {average:.2f}억원 · {count}건{listing_text}\n계산 기간 {period}"))
+    for keys, listing in listing_groups.items():
+        if keys in trade_keys:
+            continue
+        region, dong, address, apartment = keys
+        points.append(dict(region_code=region, dong=dong, address=address, apartment=apartment,
+            kind="매물 등록 아파트", lat=listing["lat"], lon=listing["lon"], count=0,
+            average_price=None, period="실거래 없음", period_kind="실거래 없음",
+            listing_count=listing["count"], listing_median=listing["median"],
+            color=[217, 138, 50, 230], radius=95 + min(listing["count"], 30) * 7,
+            label=f"매물 {listing['count']}",
+            summary=f"활성 매물 {listing['count']}건 · 중위 {listing['median']:.2f}억원\n최근 실거래 없음"))
     return points
 
 

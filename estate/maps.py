@@ -25,16 +25,26 @@ def housing_deck(points, region, show_labels=True):
     else:
         lat, lon, zoom = REGION_VIEWS.get(region, (36.3, 127.8, 7))
     shown = points[:5000]
-    layers = [pdk.Layer(
+    listing_points = [p for p in shown if p.get("listing_count", 0)]
+    layers = []
+    if listing_points:
+        layers.append(pdk.Layer(
+            "ScatterplotLayer", data=listing_points, id="active-listings",
+            get_position="[lon, lat]", filled=False, stroked=True,
+            get_radius="radius + 45", radius_min_pixels=22, radius_max_pixels=46,
+            get_line_color=[226, 145, 55, 240], line_width_min_pixels=4,
+            pickable=True,
+        ))
+    layers.append(pdk.Layer(
         "ScatterplotLayer", data=shown, id="apartments",
         get_position="[lon, lat]", get_fill_color="color", get_radius="radius",
         radius_min_pixels=16, radius_max_pixels=38, stroked=True,
         get_line_color=[255, 255, 255, 230], line_width_min_pixels=2,
         pickable=True, auto_highlight=True,
-    )]
+    ))
     if show_labels:
         labels = sorted((p for p in shown if "label" in p),
-                        key=lambda p: p["count"], reverse=True)[:100]
+                        key=lambda p: p["count"], reverse=True)[:40]
         if labels:
             layers.append(pdk.Layer(
                 "TextLayer", id="apartment-labels", data=labels,

@@ -65,3 +65,19 @@ def test_recent_and_fallback_periods_stay_separate_on_map():
     assert by_name["최근단지"]["period"] == "2026-06~2026-08"
     assert by_name["과거단지"]["average_price"] == 6
     assert by_name["과거단지"]["period_kind"] == "최근 거래월"
+
+
+def test_map_combines_active_listings_and_keeps_listing_only_apartments():
+    trades = pd.DataFrame([sample(lat=37.3, lon=127.1)])
+    listing = dict(region_code="41465", dong="풍덕천동", address="수지구 풍덕천동 1",
+                   apartment="같은이름", price_eok=11.5, lat=37.3, lon=127.1)
+    listing_only = dict(listing, address="수지구 풍덕천동 2", apartment="매물전용",
+                        price_eok=7.0, lat=37.31, lon=127.11)
+    points = map_price_points(trades, listings=pd.DataFrame([listing, listing_only]))
+    by_name = {point["apartment"]: point for point in points}
+    assert by_name["같은이름"]["listing_count"] == 1
+    assert by_name["같은이름"]["listing_median"] == 11.5
+    assert by_name["매물전용"]["average_price"] is None
+    assert by_name["매물전용"]["label"] == "매물 1"
+    deck = housing_deck(points, "41465")
+    assert deck.layers[0].id == "active-listings"

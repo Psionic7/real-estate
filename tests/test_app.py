@@ -12,11 +12,12 @@ def test_empty_database_keeps_suji_map_and_collection_controls(tmp_path, monkeyp
     monkeypatch.setenv("REAL_ESTATE_DATA_DIR", str(tmp_path))
     app = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not app.exception
-    assert len(app.tabs) == 5
-    assert app.tabs[0].label == "아파트 대시보드"
+    assert len(app.tabs) == 4
+    assert app.tabs[0].label == "지도 탐색"
+    assert app.tabs[1].label.startswith("관심 단지")
     assert app.selectbox(key="region").value == "41465"
     assert not app.radio
-    assert app.metric[0].value == "0건"
+    assert app.metric[0].value == "0개"
     deck = json.loads(app.get("deck_gl_json_chart")[0].proto.json)
     assert 37.3 < deck["initialViewState"]["latitude"] < 37.4
     assert deck["mapStyle"]
@@ -40,7 +41,7 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     replace_trade_partition(path, "41465", "202601", [row])
     app = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not app.exception
-    assert app.metric[0].value == "1건"
+    assert app.metric[1].value == "1건"
     summary = next(table.value for table in app.dataframe if "아파트" in table.value.columns)
     assert len(summary) == 1
     assert summary.iloc[0]["아파트"] == "테스트단지"
@@ -54,5 +55,5 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     assert any("좌표가 확인된 단지가 없습니다" in message.value for message in app.info)
     app.text_input(key="search").set_value("NO SUCH APARTMENT").run()
     assert not app.exception
-    assert app.metric[0].value == "0건"
+    assert app.metric[1].value == "0건"
     assert len(app.get("deck_gl_json_chart")) == 1
