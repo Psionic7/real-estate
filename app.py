@@ -52,6 +52,8 @@ APP_CSS = """
   background:#087f8c; vertical-align:-1px;}
 .legend-ring {display:inline-block; width:14px; height:11px; margin-right:6px; background:#ab5d1c;
   border-radius:3px; vertical-align:-1px;}
+.legend-history {display:inline-block; width:14px; height:11px; margin-right:6px; background:#62758c;
+  border-radius:3px; vertical-align:-1px;}
 .selection-empty {min-height:150px; display:flex; flex-direction:column; justify-content:center;
   align-items:center; text-align:center; padding:30px; border:1px dashed #cbd5e1; border-radius:22px;
   color:#718096; background:rgba(255,255,255,.55);}
@@ -210,11 +212,12 @@ with map_tab:
     elif not points:
         st.info("현재 조건에 맞는 실거래 또는 매물 데이터가 없습니다. 지역과 검색 조건을 조정해 주세요.")
     control, note = st.columns([1, 3], vertical_alignment="center")
-    show_labels = control.checkbox("단지 정보 카드", value=True, key="map_labels")
-    note.caption("카드에는 단지명, 전용면적, 최근 평균가격, 실거래·매물 건수를 표시합니다. 겹치는 카드는 확대하면 추가로 나타납니다.")
-    st.html('<div class="map-legend"><span><i class="legend-dot"></i>청록: 실거래 단지</span>'
-            '<span><i class="legend-ring"></i>주황: 활성 매물 보유</span></div>')
-    event = st.pydeck_chart(housing_deck(points, region, show_labels), height=590,
+    show_labels = control.checkbox("단지명·가격 카드", value=True, key="map_labels")
+    note.caption("전용면적·평균 실거래가 또는 매물 호가 위에 단지명을 표시합니다. 카드를 누르면 거래 내역을 볼 수 있습니다.")
+    st.html('<div class="map-legend"><span><i class="legend-dot"></i>청록 · 최근 실거래</span>'
+            '<span><i class="legend-history"></i>회청 · 최근 거래월</span>'
+            '<span><i class="legend-ring"></i>주황 · 매물 호가</span></div>')
+    event = st.pydeck_chart(housing_deck(points, region, show_labels), height=650,
                             on_select="rerun", selection_mode="single-object",
                             key=f"housing_map_{region}_{query}")
     selected = [item for group in event.selection.get("objects", {}).values() for item in group]

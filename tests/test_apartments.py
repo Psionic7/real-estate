@@ -1,4 +1,6 @@
 import pandas as pd
+import base64
+
 import pytest
 
 from estate.analytics import (apartment_stats, apartment_sample, canonicalize_apartment_names,
@@ -66,6 +68,10 @@ def test_recent_and_fallback_periods_stay_separate_on_map():
     assert by_name["최근단지"]["period"] == "2026-06~2026-08"
     assert by_name["과거단지"]["average_price"] == 6
     assert by_name["과거단지"]["period_kind"] == "최근 거래월"
+    deck = housing_deck(points, "41465")
+    past_marker = next(row for row in deck.layers[0].data if row["apartment"] == "과거단지")
+    svg = base64.b64decode(past_marker["marker_icon"]["url"].split(",", 1)[1]).decode()
+    assert "20.01" in svg and "6.0억" in svg
 
 
 def test_map_combines_active_listings_and_keeps_listing_only_apartments():

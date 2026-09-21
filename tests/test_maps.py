@@ -1,4 +1,6 @@
+import base64
 import json
+from xml.etree import ElementTree
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -16,12 +18,19 @@ def test_map_uses_real_points_and_preserves_basemap_when_empty():
                  summary="최근 3개월 평균 10.00억원")
     deck = json.loads(housing_deck([point], "41465").to_json())
     assert deck["initialViewState"]["latitude"] == point["lat"]
-    assert deck["layers"][0]["data"] == [point]
-    assert deck["layers"][0]["data"][0]["card_label"] == point["card_label"]
-    assert deck["layers"][0]["fontFamily"] == "Malgun Gothic"
-    assert deck["layers"][0]["getTextAnchor"] == "middle"
-    assert deck["layers"][0]["@@type"] == "TextLayer"
+    marker = deck["layers"][0]["data"][0]
+    assert marker["apartment"] == point["apartment"]
+    svg = base64.b64decode(marker["marker_icon"]["url"].split(",", 1)[1]).decode()
+    assert "84㎡" in svg and "10.0억" in svg and ">A<" in svg
+    ElementTree.fromstring(svg)
+    assert deck["layers"][0]["@@type"] == "IconLayer"
+    assert deck["layers"][0]["alphaCutoff"] == -1
     assert deck["layers"][0]["extensions"][0]["@@type"] == "CollisionFilterExtension"
+    assert json.loads(housing_deck([point], "41465", False).to_json())["layers"][0]["@@type"] == "ScatterplotLayer"
+    escaped = json.loads(housing_deck([dict(point, apartment="A&B")], "41465").to_json())["layers"][0]["data"][0]
+    escaped_svg = base64.b64decode(escaped["marker_icon"]["url"].split(",", 1)[1]).decode()
+    assert "A&amp;B" in escaped_svg
+    ElementTree.fromstring(escaped_svg)
     empty = json.loads(housing_deck([], "41465").to_json())
     assert empty["mapProvider"] == "carto"
     assert empty["mapStyle"]
