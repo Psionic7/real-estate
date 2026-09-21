@@ -7,9 +7,11 @@ import streamlit as st
 from estate.admin_access import local_admin_allowed
 from estate.baseline import package_database
 from estate.collection_ui import render_archive, render_manual_collection, render_target_settings
-from estate.config import db_path, kakao_key, service_key
+from estate.config import (db_path, juso_address_search_key, juso_coordinate_search_key,
+                           kakao_key, service_key)
 from estate.db import connect, initialize
 from estate.geocode import geocode_pending, geocode_pending_arcgis, load_seed_geocodes
+from estate.juso import collect_address_lookups
 from estate.listings import import_rows, parse_payload
 from estate.scheduler import ensure_defaults, targets
 from estate.worker import start_background
@@ -54,11 +56,30 @@ elif page == "데이터 품질·매물":
             SELECT DISTINCT address FROM trades WHERE cancelled=0 AND address!=''
             UNION SELECT DISTINCT address FROM listing_snapshots WHERE address!=''
         ) SELECT COUNT(*),COUNT(g.address) FROM addresses a LEFT JOIN geocodes g USING(address)""").fetchone()
-    a, b, c, d = st.columns(4)
+        lookup_count, exact_count = conn.execute("SELECT COUNT(*),SUM(status='exact') FROM address_lookups").fetchone()
+    a, b, c, d, e = st.columns(5)
     a.metric("실거래 API 키", "설정됨" if service_key() else "미설정")
-    b.metric("좌표 API 키", "설정됨" if kakao_key() else "미설정")
-    c.metric("수집된 지역·월", f"{len(coverage):,}")
-    d.metric("지도 좌표 커버리지", f"{located / total:.1%}" if total else "—", f"미확정 {total-located:,}개")
+    b.metric("주소 검색 API 키", "설정됨" if juso_address_search_key() else "미설정")
+    c.metric("주소 확인", f"{exact_count or 0:,}개", f"조회 {lookup_count:,}개")
+    d.metric("좌표제공 API 키", "설정됨" if juso_coordinate_search_key() else "미설정")
+    e.metric("지도 좌표 커버리지", f"{located / total:.1%}" if total else "—", f"미확정 {total-located:,}개")
+    st.caption(f"실거래 수집 범위: {len(coverage):,}개 지역·월. 주소 검색 API는 주소 코드만 제공하며 지도 좌표는 제공하지 않습니다.")
+    with st.expander("공식 주소 검색·저장"):
+        st.caption("실거래·매물에 있는 지번주소를 행정안전부 API에서 조회해 응답 전체를 로컬 DB에 저장합니다. 좌표제공 키 없이 실행할 수 있습니다.")
+        search_regions = {"전체": None, **{f"{r['display_name']} · {r['region_code']}": r['region_code']
+                                             for r in targets(path)}}
+        search_region = st.selectbox("주소 검색 대상 지역", list(search_regions))
+        search_limit = st.number_input("이번 실행 최대 주소 검색", 1, 1000, 100)
+        refresh_search = st.checkbox("기존 조회 결과도 다시 확인", value=False)
+        if st.button("미조회 주소 검색·저장", disabled=not bool(juso_address_search_key())):
+            with st.spinner("공식 주소정보를 조회하고 있습니다."):
+                try:
+                    exact, unresolved = collect_address_lookups(
+                        path, juso_address_search_key(), search_limit,
+                        search_regions[search_region], refresh_search)
+                    st.success(f"정확히 일치한 주소 {exact}건 · 미확정 {unresolved}건")
+                except ValueError as exc:
+                    st.error(str(exc))
     if total > located:
         st.warning(f"좌표 미확정 주소 {total-located:,}개를 보강하세요.")
     with st.expander("주소 좌표 보강"):

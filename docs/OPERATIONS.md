@@ -10,7 +10,7 @@
 6. 제공처의 허용된 매물을 표준 CSV/JSON으로 변환한다. 가격 단위와 observed_at을 검수한다.
 
 새로고침은 SQLite를 다시 읽는다. .env 변경은 앱 재시작이 필요하다.
-앱은 실제 데이터 DB만 사용한다. 좌표가 없어도 배경지도가 표시되며, 단지 위치는 카카오 좌표 수집 후 표시된다.
+앱은 실제 데이터 DB만 사용한다. 주소 검색 API 키로 조회한 결과는 로컬 DB에 저장되지만 좌표는 제공되지 않는다. 좌표가 없어도 배경지도가 표시되며, 확인된 단지 좌표만 지도에 표시된다.
 
 ## 권장 수집 주기
 
@@ -29,7 +29,7 @@
 Windows 작업 스케줄러에서 ‘작업 만들기’를 선택한다.
 
 - 프로그램: `powershell.exe`
-- 인수: `-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\Psionic\Documents\ChatGPT\kh_project\scripts\collect_daily.ps1" -Region 11680 -RegionName "서울특별시 강남구" -Months 3`
+- 인수: `-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\Psionic\Documents\ChatGPT\kh_project\scripts\collect_daily.ps1" -Region 41465 -RegionName "경기도 용인시 수지구" -Months 3`
 - 시작 위치: `C:\Users\Psionic\Documents\ChatGPT\kh_project`
 - 트리거 예: 매일 06:00 (운영자가 선택)
 - 중복 실행: 새 인스턴스를 시작하지 않음
@@ -37,7 +37,7 @@ Windows 작업 스케줄러에서 ‘작업 만들기’를 선택한다.
 
 여러 지역은 작업이 겹치지 않도록 순차 실행한다. 수집 화면과 CLI에서 같은 지역·월을 동시에 갱신하지 않는다.
 스케줄러 마지막 실행 결과와 앱의 collection_runs를 확인한다. 현재 앱 자체의 이메일·메신저 알림은 없다.
-좌표 키가 없으면 collect_daily의 좌표 단계는 실패하므로 키를 설정하거나 실거래 CLI만 작업으로 등록한다.
+카카오 키와 좌표제공 키가 없어도 기존 ArcGIS 필지 검증 경로의 좌표 보강은 실행된다. 공식 주소 검색이 실패해도 실거래 수집과 좌표 보강은 계속 진행한다.
 
 ## 백업 및 복구
 
@@ -62,7 +62,7 @@ Windows 작업 스케줄러에서 ‘작업 만들기’를 선택한다.
 | 수집 중 네트워크 실패 | HTTP 429/5xx 자동 재시도 후 실패 기록; 해당 월 재수집 |
 | 날짜/총건수 검증 실패 | 기존 DB 유지, 응답 명세 및 원천 변경 확인 |
 | 매물 0건 | 최신 상태, 실제 확인 날짜와 유효기간, 가격/지역 필터 확인 |
-| 지도에 표시 없음 | 좌표 미확정 건수, 카카오 키, 지번 주소, 인터넷 타일 접근 확인 |
+| 지도에 표시 없음 | 좌표 미확정 건수, 지번 주소, 인터넷 타일 접근 확인. 주소 검색 키만으로는 좌표가 나오지 않음 |
 | SQLite locked | 동시 수집 중지, 로컬 디스크 확인, 30초 대기 후 작업 재시도 |
 | running 기록이 남음 | 프로세스 종료 여부 확인, 동일 범위 재수집. 무조건 성공으로 변경하지 않음 |
 | 앱이 느림 | 필터 범위와 DB 크기 점검. 대량 데이터는 SQL 필터/집계 최적화 후 확대 |

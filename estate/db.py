@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS geocodes (
     address TEXT PRIMARY KEY, latitude REAL NOT NULL, longitude REAL NOT NULL,
     provider TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS address_lookups (
+    address TEXT PRIMARY KEY, status TEXT NOT NULL,
+    matched_address_json TEXT, response_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS collection_runs (
     id INTEGER PRIMARY KEY, source TEXT NOT NULL, scope TEXT NOT NULL,
     started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL,
@@ -102,7 +107,7 @@ def initialize(path):
         columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_targets)")}
         if "display_name" not in columns:
             conn.execute("ALTER TABLE collection_targets ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
-        conn.execute("PRAGMA user_version=2")
+        conn.execute("PRAGMA user_version=3")
 
 
 TRADE_FIELDS = ("region_code", "deal_month", "apartment", "address", "dong", "deal_date",

@@ -40,6 +40,7 @@ def test_public_snapshot_uses_online_backup_and_strips_admin_archive(tmp_path):
     with connect(path) as conn:
         conn.execute("INSERT INTO metadata VALUES('baseline_range','200001-202609')")
         conn.execute("INSERT INTO geocodes VALUES('새 주소',37.3,127.1,'test','2026-09-21')")
+        conn.execute("INSERT INTO address_lookups VALUES('새 주소','exact','{}','{}','2026-09-21')")
     start_run(path, "molit", "41465/202609")
     packed = package_database(path)
     restored = tmp_path / "public.sqlite3"
@@ -51,6 +52,7 @@ def test_public_snapshot_uses_online_backup_and_strips_admin_archive(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM collection_runs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM collection_jobs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM api_pages").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM address_lookups").fetchone()[0] == 0
         assert conn.execute("SELECT value FROM metadata WHERE key='snapshot_created_at'").fetchone()[0]
     with connect(path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM collection_runs").fetchone()[0] == 1

@@ -64,7 +64,7 @@ def package_database(path, destination=None):
                 raise ValueError("실행 중인 수집 작업이 끝난 뒤 배포 데이터를 만드세요.")
             source.backup(target)
             for table in ("collection_jobs", "worker_state", "collection_runs",
-                          "api_pages", "api_items"):
+                          "api_pages", "api_items", "address_lookups"):
                 target.execute(f"DELETE FROM {table}")
             target.execute("DELETE FROM metadata WHERE key NOT IN ('baseline_range')")
             target.execute("INSERT OR IGNORE INTO metadata(key,value) VALUES('baseline_range','public-snapshot')")

@@ -121,6 +121,27 @@ def test_job_failure_keeps_month_progress_and_masks_error(scheduled_db, monkeypa
         assert "private-key" not in saved["message"]
 
 
+@pytest.mark.parametrize("lookup_result", [(1, 0), ValueError("private-address-key")])
+def test_address_lookup_never_blocks_coordinate_refresh(scheduled_db, monkeypatch, lookup_result):
+    enqueue(scheduled_db, 1, "202601", "202601")
+    job = claim_job(scheduled_db)
+    monkeypatch.setattr("estate.scheduler.service_key", lambda: "private-trade-key")
+    monkeypatch.setattr("estate.scheduler.juso_address_search_key", lambda: "private-address-key")
+    monkeypatch.setattr("estate.scheduler.kakao_key", lambda: "")
+    lookup = Mock(side_effect=lookup_result) if isinstance(lookup_result, Exception) else Mock(return_value=lookup_result)
+    coordinate = Mock(return_value=(2, 0))
+    monkeypatch.setattr("estate.scheduler.collect_address_lookups", lookup)
+    monkeypatch.setattr("estate.scheduler.geocode_pending_arcgis", coordinate)
+    execute_job(scheduled_db, job, Mock(return_value=1))
+    lookup.assert_called_once_with(scheduled_db, "private-address-key", limit=500, region="41465")
+    coordinate.assert_called_once()
+    with connect(scheduled_db) as conn:
+        saved = conn.execute("SELECT status,message FROM collection_jobs WHERE id=?", (job["id"],)).fetchone()
+        assert saved["status"] == "success"
+        assert "좌표 자동 보강 2건" in saved["message"]
+        assert "private-address-key" not in saved["message"]
+
+
 def test_all_api_fields_archive_and_dong_filter(scheduled_db):
     items = [trade_item(umdNm="이의동", sggCd="41117", newFutureField="retained"),
              trade_item(umdNm="매탄동", sggCd="41117")]
@@ -153,4 +174,4 @@ def test_schema_upgrade_keeps_existing_trades(scheduled_db):
     initialize(scheduled_db)
     with connect(scheduled_db) as conn:
         assert conn.execute("SELECT value FROM metadata WHERE key='preserve'").fetchone()[0] == "yes"
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3

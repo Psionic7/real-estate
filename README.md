@@ -62,13 +62,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Python "C:\Python3
 
 1. `.env.example`을 `.env`로 복사하거나 로컬에서는 `api-key.txt`를 사용합니다.
 2. 공공데이터포털에서 [아파트 매매 실거래가 상세 자료](https://www.data.go.kr/data/15126468/openapi.do)를 신청하고 `MOLIT_SERVICE_KEY`를 설정합니다.
-3. 주소 좌표가 필요하면 [카카오 로컬 API](https://developers.kakao.com/docs/ko/local/dev-guide) REST API 키를 `KAKAO_REST_API_KEY`에 설정합니다.
-4. `run-admin.bat`을 실행한 뒤 ‘수집 지역’에서 지역·주기를 저장하고 ‘실거래 수집’에서 한 지역·한 달을 먼저 검증하세요.
-5. 매물 제공처의 사용 가능한 파일을 표준 양식에 맞춰 가져옵니다. 기본 양식은 `examples/listings_template.csv`, 상세 명세는 [데이터 명세](docs/DATA_CONTRACT.md)를 참고합니다.
+3. [행정안전부 주소 검색 API](https://www.data.go.kr/data/15057017/openapi.do) 승인키가 있으면 `JUSO_ADDRESS_SEARCH_KEY`에 설정합니다. 검색 응답과 지번 일치 여부는 로컬 DB에 저장됩니다. 이 API만으로는 좌표가 나오지 않습니다.
+4. 좌표제공 검색 API 승인키는 `JUSO_COORDINATE_SEARCH_KEY`에 따로 저장합니다. 현재 이 키가 없어도 실거래·주소 검색·기존 좌표 보강은 작동합니다. 좌표제공 API 연동은 승인 후 추가합니다.
+5. 선택적으로 [카카오 로컬 API](https://developers.kakao.com/docs/ko/local/dev-guide) REST API 키를 `KAKAO_REST_API_KEY`에 설정할 수 있습니다.
+6. `run-admin.bat`을 실행한 뒤 ‘수집 지역’에서 지역·주기를 저장하고 ‘실거래 수집’에서 한 지역·한 달을 먼저 검증하세요.
+7. 매물 제공처의 사용 가능한 파일을 표준 양식에 맞춰 가져옵니다. 기본 양식은 `examples/listings_template.csv`, 상세 명세는 [데이터 명세](docs/DATA_CONTRACT.md)를 참고합니다.
 
 ```dotenv
 MOLIT_SERVICE_KEY=발급받은키
-KAKAO_REST_API_KEY=발급받은REST키
+JUSO_ADDRESS_SEARCH_KEY=주소검색승인키
+JUSO_COORDINATE_SEARCH_KEY=
 ```
 
 키는 커밋하지 않습니다. 배포본은 `data/estate.sqlite3.gz`를 첫 실행에 `data/estate.sqlite3`로 복원합니다. 배포 앱에는 수집·관리 메뉴와 수집 워커가 없습니다.
@@ -77,7 +80,7 @@ KAKAO_REST_API_KEY=발급받은REST키
 
 국토부 실거래 API 응답에는 단지 위도·경도가 없으므로 주소 좌표 변환이 별도로 필요합니다.
 배경지도는 좌표 유무와 관계없이 표시하며, 지도 오버레이에는 좌표가 확인된 개별 아파트만 표시합니다. 지역 중심점이나 지역 평균을 아파트 위치처럼 표시하지 않습니다.
-`KAKAO_REST_API_KEY`를 로컬 환경변수에 설정하거나 관리자 화면의 **데이터 품질·매물 → 주소 좌표 보강**을 실행하세요.
+관리자 화면의 **데이터 품질·매물 → 공식 주소 검색·저장**에서 주소 검색 결과를 저장할 수 있습니다. 주소 검색 API 자체는 좌표를 주지 않습니다. **주소 좌표 보강**은 좌표가 부족할 때 기존 ArcGIS 필지 검증 경로로 실행되며 카카오 키가 있으면 카카오 주소 API를 먼저 사용합니다.
 좌표 수집은 왼쪽에서 선택한 지역을 대상으로 하며 성공한 주소는 SQLite에 캐시합니다.
 지도 중심 기본값은 화면 이동용이며 단지 좌표로 사용하지 않습니다. 검색 결과가 없어도 배경지도는 유지됩니다.
 아파트 대시보드는 좌표 없이도 사용할 수 있습니다. 지도는 겹침 방지 카드에 단지명, 전용면적, 최근 평균가격, 실거래·매물 건수를 표시하며 확대하면 주변 카드가 추가로 나타납니다.

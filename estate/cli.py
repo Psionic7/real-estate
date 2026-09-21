@@ -3,10 +3,11 @@ import os
 from datetime import date
 from pathlib import Path
 
-from estate.config import db_path, service_key
+from estate.config import db_path, juso_address_search_key, kakao_key, service_key
 from estate.db import backup, connect, initialize
 from estate.baseline import build_baseline, package_database
-from estate.geocode import geocode_pending
+from estate.geocode import geocode_pending, geocode_pending_arcgis
+from estate.juso import collect_address_lookups
 from estate.listings import fetch_feed, import_rows, parse_payload
 from estate.molit import collect, months_between
 
@@ -34,6 +35,10 @@ def main():
     subs.add_parser("fetch-listings")
     geo = subs.add_parser("geocode")
     geo.add_argument("--limit", type=int, default=100)
+    addresses = subs.add_parser("search-addresses", help="공식 주소 검색 API 결과를 로컬 DB에 저장")
+    addresses.add_argument("--limit", type=int, default=100)
+    addresses.add_argument("--region")
+    addresses.add_argument("--refresh", action="store_true", help="이미 조회한 주소도 다시 확인")
     save = subs.add_parser("backup")
     save.add_argument("destination", type=Path)
     subs.add_parser("status")
@@ -42,7 +47,7 @@ def main():
     initialize(path)
     with connect(path) as conn:
         is_demo = conn.execute("SELECT 1 FROM metadata WHERE key='demo_seeded'").fetchone() is not None
-    if is_demo and args.command in {"collect", "refresh", "import-listings", "fetch-listings", "geocode"}:
+    if is_demo and args.command in {"collect", "refresh", "import-listings", "fetch-listings", "geocode", "search-addresses"}:
         parser.error("데모 DB에는 실제 데이터를 저장할 수 없습니다.")
     try:
         if args.command == "baseline":
@@ -69,7 +74,17 @@ def main():
         elif args.command == "geocode":
             if not 1 <= args.limit <= 10000:
                 raise ValueError("limit 범위는 1~10000입니다.")
-            print(f"Matched/unresolved: {geocode_pending(path, os.getenv('KAKAO_REST_API_KEY', ''), args.limit)}")
+            kakao_matched = 0
+            if kakao_key():
+                kakao_matched, _ = geocode_pending(path, kakao_key(), args.limit)
+            arcgis_matched, unresolved = geocode_pending_arcgis(path, args.limit)
+            print(f"Matched/unresolved: {kakao_matched + arcgis_matched}/{unresolved}")
+        elif args.command == "search-addresses":
+            if not 1 <= args.limit <= 10000:
+                raise ValueError("limit 범위는 1~10000입니다.")
+            exact, unresolved = collect_address_lookups(
+                path, juso_address_search_key(), args.limit, args.region, args.refresh)
+            print(f"Exact/unresolved: {exact}/{unresolved}")
         elif args.command == "backup":
             backup(path, args.destination)
             print(f"Backup: {args.destination}")
