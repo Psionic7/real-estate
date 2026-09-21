@@ -2,17 +2,17 @@ import json
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
-from estate.db import initialize, replace_trade_partition
+from estate.db import connect, initialize, replace_trade_partition
 from estate.molit import normalize
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
 
 
-def test_empty_database_keeps_suji_map_and_collection_controls(tmp_path, monkeypatch):
+def test_empty_database_keeps_suji_map_without_collection_controls(tmp_path, monkeypatch):
     monkeypatch.setenv("REAL_ESTATE_DATA_DIR", str(tmp_path))
     app = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not app.exception
-    assert len(app.tabs) == 4
+    assert len(app.tabs) == 3
     assert app.tabs[0].label == "지도 탐색"
     assert app.tabs[1].label.startswith("관심 단지")
     assert app.selectbox(key="region").value == "41465"
@@ -21,9 +21,11 @@ def test_empty_database_keeps_suji_map_and_collection_controls(tmp_path, monkeyp
     deck = json.loads(app.get("deck_gl_json_chart")[0].proto.json)
     assert 37.3 < deck["initialViewState"]["latitude"] < 37.4
     assert deck["mapStyle"]
-    assert not app.button(key="request_collection").disabled
-    app.selectbox(key="region").select("41135").run()
-    assert not app.exception
+    assert not any("데이터 관리" in tab.label for tab in app.tabs)
+    assert not any(button.key == "request_collection" for button in app.button)
+    with connect(tmp_path / "estate.sqlite3") as conn:
+        assert conn.execute("SELECT COUNT(*) FROM collection_jobs").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM collection_targets").fetchone()[0] == 0
     app.checkbox(key="radius_enabled").check().run()
     assert not app.exception
     app.checkbox(key="radius_enabled").uncheck().run()

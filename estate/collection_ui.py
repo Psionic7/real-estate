@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -8,7 +7,7 @@ import streamlit as st
 from estate.config import api_endpoint, service_key
 from estate.db import connect, decode_response_xml
 from estate.molit import parse_page
-from estate.scheduler import (KST, cancel_pending, enqueue, recent_months, save_target,
+from estate.scheduler import (KST, cancel_pending, delete_target, enqueue, recent_months, save_target,
                               targets, toggle_target)
 
 
@@ -37,11 +36,8 @@ def job_status(path):
             st.rerun(scope="fragment")
 
 
-def render_collection(path):
-    st.markdown("**관심 지역과 자동 수집**")
-    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("IS_STREAMLIT_CLOUD"):
-        st.warning("Community Cloud의 SQLite 변경은 앱 재시작·재배포 때 초기화될 수 있습니다. "
-                   "웹 즉시 수집은 현재 실행 중인 인스턴스에 반영되며, 영구 자동 수집은 로컬 Windows 작업이 담당합니다.")
+def render_target_settings(path):
+    st.subheader("수집 지역 설정")
     st.caption("기본값: 용인 수지·성남 분당·수원 광교 / 매일 오전 6시(한국시간) / 최근 12개월. 저장한 지역만 자동 수집합니다.")
     st.caption("수원 광교 기본 범위는 이의동·하동·원천동 전체입니다. API는 영통구 전체를 반환하며, 분석 데이터는 선택한 법정동으로 제한합니다.")
     saved = targets(path)
@@ -52,7 +48,8 @@ def render_collection(path):
     item = choices.get(selected, {})
     with st.form(f"target_settings_{selected}"):
         a, b = st.columns(2)
-        code = a.text_input("지역코드 (법정동 앞 5자리)", item.get("region_code", ""))
+        code = a.text_input("지역코드 (법정동 앞 5자리)", item.get("region_code", ""),
+                            disabled=bool(selected))
         name = b.text_input("시도·시군구 전체 이름", item.get("region_name", ""))
         label = a.text_input("화면 표시 이름", item.get("display_name", ""))
         dongs = b.text_input("수집할 법정동 (쉼표 구분, 비우면 구 전체)", ", ".join(json.loads(item.get("dong_filter", "[]"))))
@@ -68,6 +65,7 @@ def render_collection(path):
             save_target(path, code, name, label, dongs, "daily" if schedule == "매일 지정 시각" else "interval",
                         minutes, daily, lookback, enabled)
             st.success("수집 설정을 저장했습니다. 다음 실행 시각은 아래 표에서 확인할 수 있습니다.")
+            st.rerun()
         except ValueError as exc:
             st.error(str(exc))
     current = targets(path)
@@ -80,7 +78,32 @@ def render_collection(path):
         if st.button("이 지역 자동 수집 중지" if item["enabled"] else "이 지역 자동 수집 재개", key="toggle_target"):
             toggle_target(path, selected, not item["enabled"])
             st.rerun()
-        st.markdown("**사용자 요청으로 지금 수집**")
+        with st.expander("수집 지역 삭제"):
+            st.caption("수집 일정과 대기 작업만 삭제합니다. 이미 저장된 실거래·매물·좌표는 보존됩니다.")
+            with st.form(f"delete_target_{selected}"):
+                confirmed = st.checkbox(f"{item['display_name']} 수집 설정 삭제 확인")
+                remove = st.form_submit_button("지역 삭제", type="secondary")
+            if remove:
+                if not confirmed:
+                    st.error("삭제 확인을 선택하세요.")
+                else:
+                    try:
+                        delete_target(path, selected)
+                        st.success("수집 지역 설정을 삭제했습니다. 기존 데이터는 보존됩니다.")
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+
+
+def render_manual_collection(path):
+    st.subheader("실거래 수집")
+    current = targets(path)
+    choices = {r["id"]: r for r in current}
+    selected = st.selectbox("수집할 지역", list(choices),
+                            format_func=lambda i: f"{choices[i]['display_name']} · {choices[i]['region_code']}",
+                            key="manual_target") if choices else None
+    if selected:
+        item = choices[selected]
         default_months = recent_months(item["lookback_months"])
         with st.form(f"manual_collect_{selected}"):
             left, right = st.columns(2)
@@ -96,7 +119,7 @@ def render_collection(path):
                 st.success(f"작업 #{job}를 접수했습니다. 아래에서 진행 상태를 확인하세요. 완료 후 왼쪽 새로고침으로 통계를 갱신합니다.")
             except ValueError as exc:
                 st.error(str(exc))
-    if st.button("저장한 모든 지역 지금 수집", key="collect_all"):
+    if st.button("저장한 모든 지역 지금 수집", key="collect_all", disabled=not current):
         messages = []
         if not service_key():
             st.error("일반인증키.txt 또는 .env에 인증키를 설정하세요.")
@@ -109,6 +132,12 @@ def render_collection(path):
             st.info(" / ".join(messages))
     st.caption("자동 수집 중지는 이후 예약을 멈춥니다. 이미 실행 중인 수집과 직접 요청한 작업은 계속 처리합니다.")
     job_status(path)
+
+
+def render_collection(path):
+    """Legacy wrapper for callers that want both local administration views."""
+    render_target_settings(path)
+    render_manual_collection(path)
 
 
 def render_archive(path):

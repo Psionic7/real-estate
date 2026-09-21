@@ -194,3 +194,19 @@ def toggle_target(path, target_id, enabled):
         if not enabled:
             conn.execute("UPDATE collection_jobs SET status='cancelled',finished_at=? "
                          "WHERE target_id=? AND kind='scheduled' AND status='queued'", (now_iso(), target_id))
+
+
+def delete_target(path, target_id):
+    """Stop collecting a region without erasing its historical transactions."""
+    with connect(path) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        target = conn.execute("SELECT id FROM collection_targets WHERE id=?", (target_id,)).fetchone()
+        if target is None:
+            raise ValueError("삭제할 수집 지역이 없습니다.")
+        running = conn.execute("SELECT 1 FROM collection_jobs WHERE target_id=? AND status='running'",
+                               (target_id,)).fetchone()
+        if running:
+            raise ValueError("이 지역의 수집이 실행 중입니다. 완료된 뒤 삭제하세요.")
+        conn.execute("UPDATE collection_jobs SET status='cancelled',finished_at=? "
+                     "WHERE target_id=? AND status='queued'", (now_iso(), target_id))
+        conn.execute("DELETE FROM collection_targets WHERE id=?", (target_id,))

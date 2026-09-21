@@ -1,7 +1,5 @@
-import os
 import json
 from datetime import date, timedelta
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -9,16 +7,13 @@ import streamlit as st
 from estate.analytics import (active_listings, apartment_stats, apartment_sample, comparable_gap, export_csv, filter_common,
                               latest_deal_date, load_data, load_map_trades, map_price_points,
                               within_radius)
-from estate.config import ROOT, db_path, kakao_key, service_key
-from estate.collection_ui import render_collection, render_archive
+from estate.config import db_path
 from estate.db import connect, initialize
 from estate.dashboard import render_dashboard, render_watchlist
 from estate.favorites import apartment_id, apartment_identity, filter_favorites, parse_favorites
-from estate.geocode import geocode_pending, geocode_pending_arcgis, load_seed_geocodes
-from estate.listings import import_rows, parse_payload
+from estate.geocode import load_seed_geocodes
 from estate.maps import DEFAULT_REGION, REGION_VIEWS, housing_deck
-from estate.scheduler import ensure_defaults, targets
-from estate.worker import start_background
+from estate.scheduler import targets
 
 st.set_page_config(page_title="집의 흐름 | 아파트 데이터 지도", page_icon="🏙️", layout="wide")
 
@@ -41,72 +36,6 @@ def show_table(frame, listing=False, key="export"):
     })
     st.download_button("조회 결과 CSV 저장", export_csv(view), file_name=f"{key}.csv",
                        mime="text/csv", key=key)
-
-
-def data_management(path, selected_region):
-    st.subheader("데이터 수집 및 품질")
-    st.caption("인증키·엔드포인트는 Streamlit Secrets, 환경변수 또는 로컬 TXT/.env에서 설정합니다.")
-    with connect(path) as conn:
-        coverage = pd.read_sql_query("""SELECT region_code AS 지역코드,deal_month AS 계약월,
-            COUNT(*) AS 전체건수,SUM(cancelled) AS 해제건수,MAX(collected_at) AS 수집시각
-            FROM trades GROUP BY region_code,deal_month ORDER BY deal_month DESC,region_code""", conn)
-        runs = pd.read_sql_query("SELECT source,scope,started_at,finished_at,status,row_count,message "
-                                 "FROM collection_runs ORDER BY id DESC LIMIT 30", conn)
-        coordinate_quality = conn.execute("""WITH addresses AS (
-            SELECT DISTINCT address FROM trades WHERE cancelled=0 AND address!=''
-            UNION SELECT DISTINCT address FROM listing_snapshots WHERE address!=''
-        ) SELECT COUNT(*) total,COUNT(g.address) located FROM addresses a LEFT JOIN geocodes g USING(address)""").fetchone()
-    total_addresses, located_addresses = coordinate_quality
-    missing_addresses = total_addresses - located_addresses
-    a, b, c, d = st.columns(4)
-    a.metric("실거래 API 키", "설정됨" if service_key() else "미설정")
-    b.metric("주소 좌표 API 키", "설정됨" if kakao_key() else "미설정")
-    c.metric("수집된 지역·월", f"{len(coverage):,}")
-    d.metric("지도 좌표 커버리지", f"{located_addresses / total_addresses:.1%}" if total_addresses else "—",
-             f"미확정 {missing_addresses:,}개", delta_color="inverse")
-    if missing_addresses:
-        st.error(f"좌표가 없는 주소 {missing_addresses:,}개가 지도에서 제외됩니다. 좌표 API 키를 설정한 뒤 보강을 실행하세요.")
-    render_collection(path)
-    with st.expander("API 전체 필드·수집 원문"):
-        render_archive(path)
-    with st.expander("② 현재 매물 CSV·JSON 가져오기"):
-        st.caption("사용 권한이 있는 아파트 매매 자료를 표준 열에 맞춰 가져오세요. 누락 매물을 자동 종료하지 않으므로 종료 시 status를 갱신해야 합니다.")
-        st.download_button("CSV 양식 다운로드", (ROOT / "examples/listings_template.csv").read_bytes(),
-                           file_name="listings_template.csv", mime="text/csv")
-        uploaded = st.file_uploader("매물 파일 (UTF-8, 최대 10MB)", type=["csv", "json"])
-        if uploaded:
-            try:
-                rows = parse_payload(uploaded.getvalue(), Path(uploaded.name).suffix)
-                st.dataframe(pd.DataFrame(rows).head(20), hide_index=True, width="stretch")
-                st.caption(f"검증 통과: {len(rows):,}행 / 미리보기 최대 20행")
-                if st.button("검증된 매물 저장"):
-                    count = import_rows(path, rows)
-                    st.success(f"신규 스냅샷 {count:,}건 저장. 새로고침하면 화면에 반영됩니다.")
-            except ValueError as exc:
-                st.error(str(exc))
-    with st.expander("③ 주소를 지도 좌표로 변환"):
-        st.caption("국토부 실거래 API에는 위도·경도가 없습니다. 카카오 키가 있으면 카카오 주소 API를 우선 사용하고, 없으면 정확한 필지 후보를 자동 검증합니다. 행정구역 중심점은 저장하지 않습니다.")
-        st.caption(f"좌표 수집 범위: {LABELS.get(selected_region, selected_region)} · 왼쪽 지역 선택을 따릅니다.")
-        limit = st.number_input("이번 실행 최대 주소 수", 1, 1000, 100, key="geo_limit")
-        if st.button("미등록 주소 좌표 검증·수집"):
-            try:
-                with st.spinner("주소 좌표를 수집하고 있습니다."):
-                    selected_code = None if selected_region == "전체" else selected_region
-                    if kakao_key():
-                        matched, missing = geocode_pending(path, kakao_key(), limit, region=selected_code)
-                    else:
-                        matched, missing = geocode_pending_arcgis(path, limit, region=selected_code)
-                st.session_state["geocode_result"] = f"좌표 저장 {matched}건 / 미확정 {missing}건"
-                st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
-        if "geocode_result" in st.session_state:
-            st.success(st.session_state.pop("geocode_result"))
-    st.markdown("**실거래 수집 범위**")
-    st.dataframe(coverage, hide_index=True, width="stretch")
-    st.markdown("**최근 수집 기록**")
-    st.dataframe(runs, hide_index=True, width="stretch")
-    st.caption("running 상태가 계속되면 중단된 작업일 수 있습니다. 해당 지역·월을 다시 수집하세요.")
 
 
 APP_CSS = """
@@ -208,25 +137,14 @@ st.sidebar.caption("MAP-BASED APARTMENT INSIGHT")
 path = db_path()
 initialize(path)
 load_seed_geocodes(path)
-ensure_defaults(path)
-
-
-@st.cache_resource
-def collection_worker(database):
-    return start_background(database)
-
-
-collection_worker(str(path))
 if st.sidebar.button("새로고침", icon=":material/refresh:", width="stretch"):
     st.rerun()
 
-saved_targets = targets(path)
-LABELS.update({r["region_code"]: r["display_name"] for r in saved_targets})
-LABELS[DEFAULT_REGION] = "용인시 수지구"
+LABELS.update({r["region_code"]: r["display_name"] for r in targets(path)})
 with connect(path) as conn:
     stored_regions = {r[0] for r in conn.execute(
         "SELECT region_code FROM trades UNION SELECT region_code FROM listing_snapshots")}
-regions = sorted(stored_regions | {r["region_code"] for r in saved_targets} | {DEFAULT_REGION})
+regions = sorted(stored_regions | {DEFAULT_REGION})
 region = st.sidebar.selectbox("지도 지역", ["전체"] + regions,
                               index=regions.index(DEFAULT_REGION) + 1,
                               format_func=lambda r: LABELS.get(r, r), key="region")
@@ -278,8 +196,8 @@ st.html(f"""
 </header>
 """)
 
-map_tab, watch_tab, market_tab, manage_tab = st.tabs(
-    ["지도 탐색", f"관심 단지 {len(favorite_ids)}", "지역 흐름", "데이터 관리"])
+map_tab, watch_tab, market_tab = st.tabs(
+    ["지도 탐색", f"관심 단지 {len(favorite_ids)}", "지역 흐름"])
 
 with map_tab:
     points = map_price_points(map_trades, REGION_VIEWS, filtered_listings)
@@ -288,7 +206,7 @@ with map_tab:
     top_b.metric("최근 실거래", f"{len(map_trades):,}건")
     top_c.metric("활성 매물", f"{len(filtered_listings):,}건")
     if not points and (len(map_trades) or len(filtered_listings)):
-        st.info("현재 조건에 맞는 아파트 중 좌표가 확인된 단지가 없습니다. 데이터 관리에서 주소 좌표를 보완해 주세요.")
+        st.info("현재 조건에 맞는 아파트 중 좌표가 확인된 단지가 없습니다.")
     elif not points:
         st.info("현재 조건에 맞는 실거래 또는 매물 데이터가 없습니다. 지역과 검색 조건을 조정해 주세요.")
     control, note = st.columns([1, 3], vertical_alignment="center")
@@ -321,7 +239,7 @@ with map_tab:
         if available_frames else map_trades.iloc[0:0])
     missing = sum(apartment_id(row) not in located_keys for row in all_groups.to_dict("records"))
     if missing:
-        st.caption(f"좌표 미확정 아파트 {missing:,}개는 지도에서 제외되었습니다. 데이터 관리에서 주소 좌표를 보완할 수 있습니다.")
+        st.caption(f"좌표 미확정 아파트 {missing:,}개는 지도에서 제외되었습니다.")
     st.caption("실거래가 없던 단지는 최근 거래월 평균을 표시합니다. 좌표 출처: © OpenStreetMap contributors (ODbL), Esri ArcGIS World Geocoding Service, 도로명주소 조회 자료.")
 
 with watch_tab:
@@ -355,9 +273,6 @@ with market_tab:
             if filtered_listings.empty:
                 st.caption("연결된 매물 자료가 없습니다.")
             show_table(filtered_listings.sort_values("observed_at", ascending=False), True, "listings")
-
-with manage_tab:
-    data_management(path, region)
 
 st.divider()
 st.caption("집의 흐름 · 지도 기반 아파트 실거래·매물 탐색 | 금액: 억원 · 면적: 전용㎡")

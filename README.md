@@ -11,7 +11,14 @@ Windows · Python · Streamlit · SQLite로 만든 아파트 매매 실거래·�
 .\run.bat
 ```
 
-브라우저에서 http://localhost:8501 에 접속합니다. 왼쪽 지역 필터로 조회 범위를 변경합니다.
+브라우저에서 http://localhost:8501 에 접속합니다. 이 화면과 Streamlit Cloud 배포본은 **조회 전용**입니다. 왼쪽 지역 필터로 조회 범위를 변경합니다.
+수집 지역 설정과 수집은 이 PC의 별도 관리자 앱에서 합니다.
+
+```powershell
+.\run-admin.bat
+```
+
+관리자 화면은 http://127.0.0.1:8502 에서 열립니다. 실행 명령의 `127.0.0.1` 바인딩과 로컬 실행 플래그가 모두 있어야 관리자 기능이 열립니다. 관리자 앱은 외부 네트워크나 Streamlit Cloud에서 실행되지 않습니다. 여러 Windows 계정이 한 PC를 공유한다면 프로젝트 폴더와 실행 계정의 접근 권한도 제한하세요.
 명령으로 직접 실행하려면:
 
 ```powershell
@@ -56,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Python "C:\Python3
 1. `.env.example`을 `.env`로 복사하거나 로컬에서는 `api-key.txt`를 사용합니다.
 2. 공공데이터포털에서 [아파트 매매 실거래가 상세 자료](https://www.data.go.kr/data/15126468/openapi.do)를 신청하고 `MOLIT_SERVICE_KEY`를 설정합니다.
 3. 주소 좌표가 필요하면 [카카오 로컬 API](https://developers.kakao.com/docs/ko/local/dev-guide) REST API 키를 `KAKAO_REST_API_KEY`에 설정합니다.
-4. 앱을 다시 시작하고 ‘데이터 관리’에서 수집합니다. 먼저 한 지역·한 달로 검증하세요.
+4. `run-admin.bat`을 실행한 뒤 ‘수집 지역’에서 지역·주기를 저장하고 ‘실거래 수집’에서 한 지역·한 달을 먼저 검증하세요.
 5. 매물 제공처의 사용 가능한 파일을 표준 양식에 맞춰 가져옵니다. 기본 양식은 `examples/listings_template.csv`, 상세 명세는 [데이터 명세](docs/DATA_CONTRACT.md)를 참고합니다.
 
 ```dotenv
@@ -64,13 +71,13 @@ MOLIT_SERVICE_KEY=발급받은키
 KAKAO_REST_API_KEY=발급받은REST키
 ```
 
-키는 커밋하지 않습니다. 배포본은 `data/estate.sqlite3.gz`를 첫 실행에 `data/estate.sqlite3`로 복원합니다. 새 DB가 비어 있어도 수지구 배경지도와 수집 화면을 표시합니다.
+키는 커밋하지 않습니다. 배포본은 `data/estate.sqlite3.gz`를 첫 실행에 `data/estate.sqlite3`로 복원합니다. 배포 앱에는 수집·관리 메뉴와 수집 워커가 없습니다.
 
 ### 지도에 거래 원이 없는 경우
 
 국토부 실거래 API 응답에는 단지 위도·경도가 없으므로 주소 좌표 변환이 별도로 필요합니다.
 배경지도는 좌표 유무와 관계없이 표시하며, 지도 오버레이에는 좌표가 확인된 개별 아파트만 표시합니다. 지역 중심점이나 지역 평균을 아파트 위치처럼 표시하지 않습니다.
-`KAKAO_REST_API_KEY`를 환경변수 또는 Streamlit Secrets에 설정하고, **데이터 관리 → 주소를 지도 좌표로 변환**을 실행하세요.
+`KAKAO_REST_API_KEY`를 로컬 환경변수에 설정하거나 관리자 화면의 **데이터 품질·매물 → 주소 좌표 보강**을 실행하세요.
 좌표 수집은 왼쪽에서 선택한 지역을 대상으로 하며 성공한 주소는 SQLite에 캐시합니다.
 지도 중심 기본값은 화면 이동용이며 단지 좌표로 사용하지 않습니다. 검색 결과가 없어도 배경지도는 유지됩니다.
 아파트 대시보드는 좌표 없이도 사용할 수 있습니다. 지도는 겹침 방지 카드에 단지명, 전용면적, 최근 평균가격, 실거래·매물 건수를 표시하며 확대하면 주변 카드가 추가로 나타납니다.
@@ -131,19 +138,18 @@ python scripts/import_juso_geocodes.py
 
 네트워크 공유 폴더가 아닌 로컬 디스크에 SQLite를 두고, 첫 운영은 단일 PC·단일 수집 작업으로 시작합니다.
 
-## Streamlit Community Cloud 배포
+## 로컬 수집 데이터 배포
 
-배포 진입점은 `app.py`, Python은 3.12를 사용합니다. Community Cloud의 Advanced settings → Secrets에 다음 값을 입력합니다.
+1. 로컬 관리자 화면에서 수집 작업이 끝난 것을 확인합니다.
+2. **배포 데이터 → 배포용 스냅샷 생성**을 누릅니다. SQLite 온라인 백업으로 `data/estate.sqlite3.gz`를 만들며 수집 작업·API 원문·인증정보를 제외합니다.
+3. `data/estate.sqlite3.gz`와 필요한 코드 변경을 GitHub `main`에 커밋·푸시합니다. Streamlit Cloud가 다시 배포되면 새 데이터가 나타납니다. 로컬 DB는 그대로 유지됩니다.
 
-```toml
-MOLIT_SERVICE_KEY = "발급받은 일반 인증키"
-MOLIT_ENDPOINT = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade"
-IS_STREAMLIT_CLOUD = "1"
-# 단지 위치 표시를 위한 주소 좌표 수집용 (실거래 인증키와 별개)
-KAKAO_REST_API_KEY = "발급받은 카카오 REST API 키"
+```powershell
+git add data/estate.sqlite3.gz
+git commit -m "Update public apartment data"
+git push origin main
 ```
 
-`api-key.txt`와 `.streamlit/secrets.toml`은 Git에서 제외됩니다. Community Cloud의 로컬 파일시스템은 영구 저장소가 아니므로,
-웹에서 즉시 수집한 SQLite 변경은 앱 재시작·재배포 때 저장소의 초기 스냅샷으로 돌아갈 수 있습니다.
-Windows 작업 스케줄러가 영구 수집 DB를 관리하며, 클라우드는 조회와 일시적 즉시 수집을 제공합니다.
-영구 클라우드 수집이 필요하면 다음 단계에서 관리형 PostgreSQL로 DB 계층을 교체해야 합니다.
+## Streamlit Community Cloud 배포
+
+배포 진입점은 `app.py`, Python은 3.12를 사용합니다. Cloud에는 국토부·카카오 API 키를 설정할 필요가 없습니다. 공개 앱은 저장소의 압축 데이터만 표시하고 API 수집과 지역 설정을 실행하지 않습니다. 키는 로컬 `.env` 또는 Git 제외된 TXT에만 보관하세요.
