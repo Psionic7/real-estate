@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
 from streamlit.testing.v1 import AppTest
+from estate.area import format_area, format_area_range
 from estate.db import connect, initialize, replace_trade_partition
 from estate.molit import normalize
 
@@ -23,6 +25,14 @@ def test_empty_database_keeps_suji_map_without_collection_controls(tmp_path, mon
     assert deck["mapStyle"]
     assert not any("데이터 관리" in tab.label for tab in app.tabs)
     assert not any(button.key == "request_collection" for button in app.button)
+    assert app.segmented_control(key="area_unit").value == "㎡"
+    app.segmented_control(key="area_unit").set_value("평").run()
+    assert not app.exception
+    assert app.slider(key="area_filter_pyeong").value == (0.0, 60.5)
+    assert app.session_state["_area_filter_m2"][1] == 200.0
+    app.segmented_control(key="area_unit").set_value("㎡").run()
+    assert not app.exception
+    assert app.slider(key="area_filter_m2").value == (0, 200)
     with connect(tmp_path / "estate.sqlite3") as conn:
         assert conn.execute("SELECT COUNT(*) FROM collection_jobs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM collection_targets").fetchone()[0] == 0
@@ -30,6 +40,12 @@ def test_empty_database_keeps_suji_map_without_collection_controls(tmp_path, mon
     assert not app.exception
     app.checkbox(key="radius_enabled").uncheck().run()
     assert len(app.get("deck_gl_json_chart")) == 1
+
+
+def test_exclusive_area_display_conversion():
+    assert format_area(84, "평") == "25.4평"
+    assert format_area_range(59, 84, "평") == "17.8~25.4평"
+    assert format_area_range(84, 84, "㎡") == "84㎡"
 
 
 def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_path, monkeypatch):
@@ -47,6 +63,14 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     summary = next(table.value for table in app.dataframe if "아파트" in table.value.columns)
     assert len(summary) == 1
     assert summary.iloc[0]["아파트"] == "테스트단지"
+    app.segmented_control(key="area_unit").set_value("평").run()
+    assert not app.exception
+    pyeong_summary = next(table.value for table in app.dataframe
+                           if "최소면적(평)" in table.value.columns)
+    assert pyeong_summary.iloc[0]["최소면적(평)"] == pytest.approx(25.68)
+    trade_table = next(table.value for table in app.dataframe
+                       if "전용면적(평)" in table.value.columns)
+    assert trade_table.iloc[0]["전용면적(평)"] == pytest.approx(25.7)
     app.selectbox(key="apartment_sort").select("중위가격 높은 순").run()
     assert not app.exception
     app.number_input(key="apartment_min_count").set_value(2).run()

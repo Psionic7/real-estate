@@ -7,6 +7,7 @@ import streamlit as st
 from estate.analytics import (active_listings, apartment_stats, apartment_sample, comparable_gap, export_csv, filter_common,
                               latest_deal_date, load_data, load_map_trades, map_price_points,
                               within_radius)
+from estate.area import area_label, to_display_area, to_square_metres
 from estate.config import db_path
 from estate.db import connect, initialize
 from estate.dashboard import render_dashboard, render_watchlist
@@ -25,14 +26,17 @@ DISPLAY = {"apartment": "단지", "address": "주소", "dong": "법정동", "dea
            "listing_id": "매물ID", "status": "상태", "region_code": "지역코드"}
 
 
-def show_table(frame, listing=False, key="export"):
+def show_table(frame, listing=False, key="export", area_unit="㎡"):
     columns = (["source", "listing_id", "observed_at"] if listing else ["deal_date"]) + [
         "apartment", "address", "area_m2", "floor", "price_eok", "price_per_pyeong"]
-    view = frame[columns].rename(columns=DISPLAY)
+    view = frame[columns].copy()
+    view["area_m2"] = to_display_area(pd.to_numeric(view["area_m2"], errors="coerce"), area_unit).round(
+        1 if area_unit == "평" else 2)
+    view = view.rename(columns={**DISPLAY, "area_m2": area_label(area_unit)})
     st.dataframe(view, hide_index=True, width="stretch", column_config={
         "가격(억원)": st.column_config.NumberColumn(format="%.2f"),
         "평당가격(만원)": st.column_config.NumberColumn(format="%.0f"),
-        "전용면적(㎡)": st.column_config.NumberColumn(format="%.2f"),
+        area_label(area_unit): st.column_config.NumberColumn(format="%.1f" if area_unit == "평" else "%.2f"),
     })
     st.download_button("조회 결과 CSV 저장", export_csv(view), file_name=f"{key}.csv",
                        mime="text/csv", key=key)
@@ -92,7 +96,7 @@ def remove_favorite(value):
     save_favorite_ids([item for item in load_favorite_ids() if item != value])
 
 
-def render_selected_apartment(item, map_trades, live_listings):
+def render_selected_apartment(item, map_trades, live_listings, area_unit="㎡"):
     identity = apartment_identity(apartment_id(item))
     sample = apartment_sample(map_trades, identity)
     listing_sample = apartment_sample(live_listings, identity) if not live_listings.empty else live_listings.copy()
@@ -115,8 +119,11 @@ def render_selected_apartment(item, map_trades, live_listings):
             st.caption("표시할 실거래가 없습니다.")
         else:
             recent = sample.sort_values("deal_date", ascending=False).head(7)[
-                ["deal_date", "area_m2", "price_eok", "floor"]].rename(columns={
-                    "deal_date": "계약일", "area_m2": "면적(㎡)", "price_eok": "가격(억)", "floor": "층"})
+                ["deal_date", "area_m2", "price_eok", "floor"]].copy()
+            recent["area_m2"] = to_display_area(recent["area_m2"], area_unit).round(1 if area_unit == "평" else 2)
+            recent = recent.rename(columns={
+                "deal_date": "계약일", "area_m2": area_label(area_unit, "면적"),
+                "price_eok": "가격(억)", "floor": "층"})
             st.dataframe(recent, hide_index=True, height=270, width="stretch",
                          column_config={"가격(억)": st.column_config.NumberColumn(format="%.2f")})
     with listing_tab:
@@ -124,8 +131,10 @@ def render_selected_apartment(item, map_trades, live_listings):
             st.caption("사용 권한이 있는 자료에서 활성 매물이 확인되지 않았습니다.")
         else:
             current = listing_sample.sort_values("observed_at", ascending=False).head(7)[
-                ["area_m2", "price_eok", "floor", "source", "source_url"]].rename(columns={
-                    "area_m2": "면적(㎡)", "price_eok": "호가(억)", "floor": "층",
+                ["area_m2", "price_eok", "floor", "source", "source_url"]].copy()
+            current["area_m2"] = to_display_area(current["area_m2"], area_unit).round(1 if area_unit == "평" else 2)
+            current = current.rename(columns={
+                    "area_m2": area_label(area_unit, "면적"), "price_eok": "호가(억)", "floor": "층",
                     "source": "출처", "source_url": "원문"})
             st.dataframe(current, hide_index=True, height=270, width="stretch", column_config={
                 "호가(억)": st.column_config.NumberColumn(format="%.2f"),
@@ -150,12 +159,32 @@ regions = sorted(stored_regions | {DEFAULT_REGION})
 region = st.sidebar.selectbox("지도 지역", ["전체"] + regions,
                               index=regions.index(DEFAULT_REGION) + 1,
                               format_func=lambda r: LABELS.get(r, r), key="region")
+area_unit = st.sidebar.segmented_control(
+    "전용면적 표시", ["㎡", "평"], default="㎡", required=True, key="area_unit",
+    help="전용면적 기준 1평 = 3.305785㎡입니다. 공급면적 기준 평형과 다릅니다.",
+)
 query = st.sidebar.text_input("아파트·주소 검색", placeholder="예: 현대성우, 풍덕천동", key="search")
 latest = latest_deal_date(path, region)
 last_date = date.fromisoformat(latest) if latest else date.today()
 with st.sidebar.expander("상세 필터", expanded=True):
     period = st.date_input("실거래 계약 기간", (last_date - timedelta(days=180), last_date), key=f"period_{region}")
-    area = st.slider("전용면적 (㎡)", 0, 300, (0, 200))
+    slider_key = "area_filter_pyeong" if area_unit == "평" else "area_filter_m2"
+    previous_unit = st.session_state.get("_area_filter_unit")
+    if previous_unit is not None and previous_unit != area_unit:
+        low, high = st.session_state.get("_area_filter_m2", (0, 200))
+        if area_unit == "평":
+            st.session_state[slider_key] = tuple(
+                min(91.0, round(to_display_area(value, "평") * 2) / 2) for value in (low, high))
+        else:
+            st.session_state[slider_key] = tuple(min(300, round(value)) for value in (low, high))
+    st.session_state["_area_filter_unit"] = area_unit
+    if area_unit == "평":
+        display_area = st.slider("전용면적 (평)", 0.0, 91.0, (0.0, 60.5),
+                                 step=0.5, key=slider_key)
+    else:
+        display_area = st.slider("전용면적 (㎡)", 0, 300, (0, 200), key=slider_key)
+    area = tuple(round(to_square_metres(value, area_unit), 3) for value in display_area)
+    st.session_state["_area_filter_m2"] = area
     price = st.slider("실거래가·호가 (억원)", 0.0, 300.0, (0.0, 100.0), step=0.5)
     freshness = st.slider("매물 확인 유효기간 (일)", 1, 60, 7)
 
@@ -217,7 +246,7 @@ with map_tab:
     st.html('<div class="map-legend"><span><i class="legend-dot"></i>청록 · 최근 실거래</span>'
             '<span><i class="legend-history"></i>회청 · 최근 거래월</span>'
             '<span><i class="legend-ring"></i>주황 · 매물 호가</span></div>')
-    event = st.pydeck_chart(housing_deck(points, region, show_labels), height=650,
+    event = st.pydeck_chart(housing_deck(points, region, show_labels, area_unit), height=650,
                             on_select="rerun", selection_mode="single-object",
                             key=f"housing_map_{region}_{query}")
     selected = [item for group in event.selection.get("objects", {}).values() for item in group]
@@ -230,7 +259,7 @@ with map_tab:
         st.session_state.pop("map_selected_apartment", None)
     if current:
         with st.container(border=True):
-            render_selected_apartment(current, map_trades, filtered_listings)
+            render_selected_apartment(current, map_trades, filtered_listings, area_unit)
     else:
         st.html('<div class="selection-empty"><span style="font-size:2rem">⌖</span>'
                 '<strong>지도에서 아파트를 선택하세요</strong>'
@@ -255,27 +284,33 @@ with watch_tab:
         watch_listings = filter_favorites(active_listings(watch_listings, freshness), favorite_ids)
     else:
         watch_trades, watch_listings = trades.iloc[0:0].copy(), listings.iloc[0:0].copy()
-    render_watchlist(watch_trades, watch_listings, favorite_ids, remove_favorite)
+    render_watchlist(watch_trades, watch_listings, favorite_ids, remove_favorite, area_unit)
 
 with market_tab:
     apartments = apartment_stats(filtered_trades)
-    render_dashboard(apartments, filtered_trades, LABELS.get(region, region), include_detail=False)
+    render_dashboard(apartments, filtered_trades, LABELS.get(region, region),
+                     include_detail=False, area_unit=area_unit)
     st.subheader("실거래와 호가 비교", icon=":material/compare_arrows:")
     gap = comparable_gap(filtered_trades, filtered_listings)
     if gap.empty:
         st.info("같은 단지·유사 면적의 실거래 3건 이상과 활성 매물이 있어야 비교할 수 있습니다.")
     else:
+        if area_unit == "평":
+            gap = gap.rename(columns={"전용면적(㎡)": "전용면적(평)"})
+            gap["전용면적(평)"] = to_display_area(gap["전용면적(평)"], area_unit)
         st.dataframe(gap.round(2), hide_index=True, width="stretch")
     with st.expander("전체 실거래와 매물 내역"):
         left, right = st.columns(2)
         with left:
             st.markdown("**실거래 내역**")
-            show_table(filtered_trades.sort_values("deal_date", ascending=False), key="trades")
+            show_table(filtered_trades.sort_values("deal_date", ascending=False),
+                       key="trades", area_unit=area_unit)
         with right:
             st.markdown("**현재 매물**")
             if filtered_listings.empty:
                 st.caption("연결된 매물 자료가 없습니다.")
-            show_table(filtered_listings.sort_values("observed_at", ascending=False), True, "listings")
+            show_table(filtered_listings.sort_values("observed_at", ascending=False),
+                       True, "listings", area_unit)
 
 st.divider()
-st.caption("집의 흐름 · 지도 기반 아파트 실거래·매물 탐색 | 금액: 억원 · 면적: 전용㎡")
+st.caption(f"집의 흐름 · 지도 기반 아파트 실거래·매물 탐색 | 금액: 억원 · 면적: 전용{area_unit}")

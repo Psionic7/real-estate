@@ -11,7 +11,8 @@ from estate.molit import normalize
 def test_map_uses_real_points_and_preserves_basemap_when_empty():
     point = dict(lat=37.33, lon=127.10, kind="아파트", apartment="A", address="B",
                  count=2, average_price=10, color=[8, 127, 140, 200], radius=75,
-                 label="10.00", area_text="84㎡", card_label="A\n84㎡ · 10억 · 실거래 2",
+                 label="10.00", min_area=84, max_area=84, area_text="84㎡",
+                 card_label="A\n84㎡ · 10억 · 실거래 2",
                  card_color=[12, 83, 94, 242], priority=10,
                  summary="최근 3개월 평균 10.00억원")
     deck = json.loads(housing_deck([point], "41465").to_json())
@@ -21,6 +22,9 @@ def test_map_uses_real_points_and_preserves_basemap_when_empty():
     assert marker["marker_label"] == "84㎡  실 10.0억\nA"
     assert marker["marker_text_color"] == [10, 97, 107, 255]
     assert marker["marker_background"] == [245, 255, 254, 250]
+    pyeong = json.loads(housing_deck([point], "41465", area_unit="평").to_json())["layers"][0]["data"][0]
+    assert pyeong["marker_label"] == "25.4평  실 10.0억\nA"
+    assert pyeong["area_text"] == "25.4평"
     assert deck["layers"][0]["@@type"] == "TextLayer"
     assert deck["layers"][0]["extensions"][0]["@@type"] == "CollisionFilterExtension"
     assert json.loads(housing_deck([point], "41465", False).to_json())["layers"][0]["@@type"] == "TextLayer"

@@ -1,6 +1,8 @@
 """Map view defaults are camera positions, never substitute property coordinates."""
 import pydeck as pdk
 
+from estate.area import format_area_range
+
 DEFAULT_REGION = "41465"
 REGION_VIEWS = {
     "41465": (37.322, 127.097, 12),  # 용인시 수지구
@@ -37,7 +39,7 @@ def _marker_details(point):
     return headline + "\n" + detail, [10, 97, 107, 255], [245, 255, 254, 250]
 
 
-def housing_deck(points, region, show_labels=True):
+def housing_deck(points, region, show_labels=True, area_unit="㎡"):
     """Render a basemap even with no geocoded properties or no matching trades."""
     if points:
         # Use all available points for the camera, independent of marker truncation.
@@ -48,7 +50,11 @@ def housing_deck(points, region, show_labels=True):
         zoom = 12 if region != "전체" else 7
     else:
         lat, lon, zoom = REGION_VIEWS.get(region, (36.3, 127.8, 7))
-    shown = points[:5000]
+    shown = []
+    for point in points[:5000]:
+        area = (format_area_range(point["min_area"], point["max_area"], area_unit)
+                if "min_area" in point and "max_area" in point else point.get("area_text", "면적 미상"))
+        shown.append(dict(point, area_text=area))
     layers = []
     if show_labels:
         if shown:

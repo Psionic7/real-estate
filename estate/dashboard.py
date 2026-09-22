@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from estate.analytics import apartment_sample, apartment_stats, export_csv, monthly_stats
+from estate.area import area_label, format_area, format_area_range, to_display_area
 from estate.favorites import apartment_identity, watchlist_summary
 
 SUMMARY_LABELS = {
@@ -93,7 +94,7 @@ def _area_summary(sample):
     return by_area.sort_values("area_group").reset_index(drop=True)
 
 
-def render_apartment_detail(sample, key):
+def render_apartment_detail(sample, key, area_unit="㎡"):
     if sample.empty:
         st.info("현재 필터에 해당하는 실거래가 없습니다.")
         return
@@ -101,7 +102,7 @@ def render_apartment_detail(sample, key):
     trend = monthly_stats(sample)
     st.html(APARTMENT_DASHBOARD_CSS)
     address = row["address"] or f"{row['dong']} · 상세 주소 미제공"
-    area_range = f"전용 {row['min_area']:.0f}~{row['max_area']:.0f}㎡"
+    area_range = f"전용 {format_area_range(row['min_area'], row['max_area'], area_unit)}"
     st.html(f"""
     <section class="apt-hero">
       <div class="apt-eyebrow">APARTMENT TRANSACTION DASHBOARD</div>
@@ -123,7 +124,7 @@ def render_apartment_detail(sample, key):
 
     by_area = _area_summary(sample)
     type_items = "".join(
-        f'<div class="apt-type"><span class="apt-type-name">전용 {area:.1f}㎡</span>'
+        f'<div class="apt-type"><span class="apt-type-name">전용 {format_area(area, area_unit, 1)}</span>'
         f'<span class="apt-type-price">{price:.2f}억 <span class="apt-type-count">({count:,}건)</span></span></div>'
         for area, price, count in by_area[["area_group", "중위가격", "거래수"]].itertuples(index=False, name=None)
     )
@@ -154,19 +155,21 @@ def render_apartment_detail(sample, key):
 
     st.markdown("**최근 실거래**")
     recent = sample.sort_values(["deal_date", "id"], ascending=False).head(10).copy()
-    recent = recent[["deal_date", "area_m2", "price_eok", "floor", "price_per_pyeong"]].rename(columns={
-        "deal_date": "계약일", "area_m2": "전용면적(㎡)", "price_eok": "거래가(억원)",
+    recent = recent[["deal_date", "area_m2", "price_eok", "floor", "price_per_pyeong"]].copy()
+    recent["area_m2"] = to_display_area(recent["area_m2"], area_unit).round(1)
+    recent = recent.rename(columns={
+        "deal_date": "계약일", "area_m2": area_label(area_unit), "price_eok": "거래가(억원)",
         "floor": "층", "price_per_pyeong": "평당가격(만원)",
     })
     st.dataframe(recent, hide_index=True, key=f"{key}_recent", height=280, column_config={
-        "전용면적(㎡)": st.column_config.NumberColumn(format="%.1f㎡"),
+        area_label(area_unit): st.column_config.NumberColumn(format=f"%.1f{area_unit}"),
         "거래가(억원)": st.column_config.NumberColumn(format="%.2f억원"),
         "평당가격(만원)": st.column_config.NumberColumn(format="%,.0f만원"),
     })
     st.caption("모든 지표는 왼쪽에서 선택한 계약 기간·면적·가격 조건을 따릅니다.")
 
 
-def render_dashboard(summary, trades, region_label, include_detail=True):
+def render_dashboard(summary, trades, region_label, include_detail=True, area_unit="㎡"):
     st.subheader(f"{region_label} 아파트 대시보드", icon=":material/dashboard:")
     if summary.empty:
         st.info("선택 조건에 맞는 실거래가 없습니다. 왼쪽 지역·기간·검색 조건을 조정하세요.")
@@ -196,7 +199,8 @@ def render_dashboard(summary, trades, region_label, include_detail=True):
         selected = st.selectbox("상세 대시보드를 볼 아파트", options, key="apartment_detail",
                                 format_func=lambda i: f"{detail_rows.iloc[i]['apartment']} · "
                                                       f"{detail_rows.iloc[i]['address'] or detail_rows.iloc[i]['dong']}")
-        render_apartment_detail(apartment_sample(trades, detail_rows.iloc[selected]), "dashboard")
+        render_apartment_detail(apartment_sample(trades, detail_rows.iloc[selected]),
+                                "dashboard", area_unit)
         st.space("medium")
     st.subheader("지역 내 아파트 비교", icon=":material/compare_arrows:")
     left, right = st.columns([2, 1])
@@ -220,7 +224,7 @@ def render_dashboard(summary, trades, region_label, include_detail=True):
                 st.caption(row["address"] or row["dong"])
                 st.metric("중위 실거래가", f"{row['median_price']:.2f}억원")
                 st.markdown(f":material/contract: **{row['count']:,}건**　:material/straighten: "
-                            f"{row['min_area']:.0f}~{row['max_area']:.0f}㎡")
+                            f"{format_area_range(row['min_area'], row['max_area'], area_unit)}")
                 st.caption(f"범위 {row['min_price']:.2f}~{row['max_price']:.2f}억 · "
                            f"최근 {row['latest_date']} {row['latest_price']:.2f}억")
 
@@ -238,7 +242,12 @@ def render_dashboard(summary, trades, region_label, include_detail=True):
         st.bar_chart(comparison, x="단지", y="중위가격(억원)", horizontal=True, color="#D98A32", height=350)
 
     st.markdown("**아파트별 전체 통계**")
-    table = ranked[list(SUMMARY_LABELS)].rename(columns=SUMMARY_LABELS).round(2)
+    table = ranked[list(SUMMARY_LABELS)].copy()
+    for column in ("min_area", "max_area"):
+        table[column] = to_display_area(table[column], area_unit)
+    labels = {**SUMMARY_LABELS, "min_area": f"최소면적({area_unit})",
+              "max_area": f"최대면적({area_unit})"}
+    table = table.rename(columns=labels).round(2)
     st.dataframe(table, hide_index=True, key="apartment_summary", height=420,
                  column_config={
                      "아파트": st.column_config.TextColumn(pinned=True),
@@ -257,7 +266,7 @@ def _price(value):
     return f"{value:.2f}억원" if pd.notna(value) else "—"
 
 
-def render_watchlist(trades, listings, favorite_ids, on_remove):
+def render_watchlist(trades, listings, favorite_ids, on_remove, area_unit="㎡"):
     """Render trend cards and drill-down for apartments saved by this browser."""
     st.html(APARTMENT_DASHBOARD_CSS)
     st.subheader("관심 단지 동향", icon=":material/star:")
@@ -323,19 +332,21 @@ def render_watchlist(trades, listings, favorite_ids, on_remove):
     if sample.empty:
         st.info("이 단지는 최근 1년 실거래가 없습니다.")
     else:
-        render_apartment_detail(sample, "watchlist")
+        render_apartment_detail(sample, "watchlist", area_unit)
     active = apartment_sample(listings, identity) if not listings.empty else listings.copy()
     st.markdown("**현재 확인된 매물**")
     if active.empty:
         st.caption("사용 권한이 있는 매물 자료에서 현재 활성 매물이 확인되지 않았습니다.")
     else:
         view = active.sort_values("observed_at", ascending=False)[
-            ["observed_at", "area_m2", "price_eok", "floor", "source", "source_url"]].rename(columns={
-                "observed_at": "확인시각", "area_m2": "전용면적(㎡)", "price_eok": "호가(억원)",
+            ["observed_at", "area_m2", "price_eok", "floor", "source", "source_url"]].copy()
+        view["area_m2"] = to_display_area(view["area_m2"], area_unit).round(1)
+        view = view.rename(columns={
+                "observed_at": "확인시각", "area_m2": area_label(area_unit), "price_eok": "호가(억원)",
                 "floor": "층", "source": "출처", "source_url": "원문",
             })
         st.dataframe(view, hide_index=True, width="stretch", column_config={
-            "전용면적(㎡)": st.column_config.NumberColumn(format="%.1f㎡"),
+            area_label(area_unit): st.column_config.NumberColumn(format=f"%.1f{area_unit}"),
             "호가(억원)": st.column_config.NumberColumn(format="%.2f억원"),
             "원문": st.column_config.LinkColumn(display_text="매물 보기"),
         })
