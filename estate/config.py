@@ -2,6 +2,8 @@ import gzip
 import os
 import shutil
 import sqlite3
+import tempfile
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -9,6 +11,7 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
+_RESTORE_LOCK = threading.Lock()
 
 
 def data_dir() -> Path:
@@ -35,14 +38,25 @@ def db_path() -> Path:
     path = data_dir() / "estate.sqlite3"
     packaged = path.with_suffix(path.suffix + ".gz")
     if packaged.exists() and not has_historical_baseline(path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        try:
-            with gzip.open(packaged, "rb") as source, temporary.open("wb") as target:
-                shutil.copyfileobj(source, target)
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        with _RESTORE_LOCK:
+            if has_historical_baseline(path):
+                return path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = None
+            try:
+                # Concurrent Streamlit sessions must not replace an open SQLite
+                # file or remove another session's temporary restore file.
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=path.parent, prefix=f".{path.name}.",
+                    suffix=".tmp", delete=False,
+                ) as target:
+                    temporary = Path(target.name)
+                    with gzip.open(packaged, "rb") as source:
+                        shutil.copyfileobj(source, target)
+                os.replace(temporary, path)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
     return path
 
 

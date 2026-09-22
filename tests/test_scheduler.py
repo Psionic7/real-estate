@@ -1,7 +1,10 @@
 import json
 import gzip
 import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from threading import Barrier
 from unittest.mock import Mock
 
 import pytest
@@ -52,6 +55,40 @@ def test_packaged_baseline_replaces_legacy_empty_database(tmp_path, monkeypatch)
     monkeypatch.setenv("REAL_ESTATE_DATA_DIR", str(data_dir))
     assert config.db_path() == runtime
     with connect(runtime) as conn:
+        assert conn.execute("SELECT value FROM metadata WHERE key='baseline_range'").fetchone()[0] == "200001-202609"
+
+
+def test_concurrent_packaged_database_restore_uses_separate_temporary_files(tmp_path, monkeypatch):
+    import estate.config as config
+    source = tmp_path / "source.sqlite3"
+    initialize(source)
+    with connect(source) as conn:
+        conn.execute("INSERT INTO metadata VALUES('baseline_range','200001-202609')")
+    data_dir = tmp_path / "runtime"
+    data_dir.mkdir()
+    with source.open("rb") as raw, gzip.open(data_dir / "estate.sqlite3.gz", "wb") as packed:
+        shutil.copyfileobj(raw, packed)
+    monkeypatch.setenv("REAL_ESTATE_DATA_DIR", str(data_dir))
+    rendezvous = Barrier(2)
+    original_copy = shutil.copyfileobj
+    copies = []
+
+    def synchronized_copy(source_file, target_file):
+        copies.append(target_file.name)
+        time.sleep(0.1)
+        return original_copy(source_file, target_file)
+
+    def restore(_):
+        rendezvous.wait(timeout=5)
+        return config.db_path()
+
+    monkeypatch.setattr(config.shutil, "copyfileobj", synchronized_copy)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        restored = list(pool.map(restore, range(2)))
+    assert restored == [data_dir / "estate.sqlite3"] * 2
+    assert len(copies) == 1
+    assert not list(data_dir.glob("*.tmp"))
+    with connect(restored[0]) as conn:
         assert conn.execute("SELECT value FROM metadata WHERE key='baseline_range'").fetchone()[0] == "200001-202609"
 
 
