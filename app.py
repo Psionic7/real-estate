@@ -160,18 +160,18 @@ region = st.sidebar.selectbox("지도 지역", ["전체"] + regions,
                               index=regions.index(DEFAULT_REGION) + 1,
                               format_func=lambda r: LABELS.get(r, r), key="region")
 area_unit = st.sidebar.segmented_control(
-    "전용면적 표시", ["㎡", "평"], default="㎡", required=True, key="area_unit",
+    "전용면적 표시", ["㎡", "평"], default="평", required=True, key="area_unit",
     help="전용면적 기준 1평 = 3.305785㎡입니다. 공급면적 기준 평형과 다릅니다.",
 )
 query = st.sidebar.text_input("아파트·주소 검색", placeholder="예: 현대성우, 풍덕천동", key="search")
 latest = latest_deal_date(path, region)
 last_date = date.fromisoformat(latest) if latest else date.today()
 with st.sidebar.expander("상세 필터", expanded=True):
-    period = st.date_input("실거래 계약 기간", (last_date - timedelta(days=180), last_date), key=f"period_{region}")
+    period = st.date_input("실거래 계약 기간", (last_date - timedelta(days=365), last_date), key=f"period_{region}")
     slider_key = "area_filter_pyeong" if area_unit == "평" else "area_filter_m2"
     previous_unit = st.session_state.get("_area_filter_unit")
     if previous_unit is not None and previous_unit != area_unit:
-        low, high = st.session_state.get("_area_filter_m2", (0, 200))
+        low, high = st.session_state.get("_area_filter_m2", (66.116, 132.231))
         if area_unit == "평":
             st.session_state[slider_key] = tuple(
                 min(91.0, round(to_display_area(value, "평") * 2) / 2) for value in (low, high))
@@ -179,14 +179,20 @@ with st.sidebar.expander("상세 필터", expanded=True):
             st.session_state[slider_key] = tuple(min(300, round(value)) for value in (low, high))
     st.session_state["_area_filter_unit"] = area_unit
     if area_unit == "평":
-        display_area = st.slider("전용면적 (평)", 0.0, 91.0, (0.0, 60.5),
+        display_area = st.slider("전용면적 (평)", 0.0, 91.0, (20.0, 40.0),
                                  step=0.5, key=slider_key)
     else:
-        display_area = st.slider("전용면적 (㎡)", 0, 300, (0, 200), key=slider_key)
+        display_area = st.slider("전용면적 (㎡)", 0, 300, (66, 132), key=slider_key)
     area = tuple(round(to_square_metres(value, area_unit), 3) for value in display_area)
     st.session_state["_area_filter_m2"] = area
-    price = st.slider("실거래가·호가 (억원)", 0.0, 300.0, (0.0, 100.0), step=0.5)
-    freshness = st.slider("매물 확인 유효기간 (일)", 1, 60, 7)
+    price = st.slider("실거래가·호가 (억원)", 0.0, 300.0, (10.0, 30.0),
+                      step=0.5, key="price_filter")
+    freshness = st.selectbox(
+        "매물 확인 유효기간", [None, 1, 3, 7, 14, 30, 60, 90, 180],
+        format_func=lambda value: "제한 없음" if value is None else f"최근 {value}일",
+        key="listing_freshness",
+        help="제한 없음은 수집 시점과 관계없이 현재 상태가 활성인 매물을 모두 표시합니다.",
+    )
 
 start_date, end_date = (period[0].isoformat(), period[1].isoformat()) if len(period) == 2 else (None, None)
 trades, listings = load_data(path, region, start_date, end_date)

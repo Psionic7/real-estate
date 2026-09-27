@@ -112,8 +112,10 @@ def load_map_trades(path, region=None):
 def active_listings(listings, freshness_days=7, now=None):
     now = now or datetime.now(timezone.utc)
     stamps = pd.to_datetime(listings["observed_at"], utc=True)
-    return listings[(listings["status"] == "active") & (stamps >= now - timedelta(days=freshness_days))
-                    & (stamps <= now)].copy()
+    mask = (listings["status"] == "active") & (stamps <= now)
+    if freshness_days is not None:
+        mask &= stamps >= now - timedelta(days=freshness_days)
+    return listings[mask].copy()
 
 
 def filter_common(df, region="전체", area=(0, 10000), price=(0, 1000), query=""):

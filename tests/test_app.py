@@ -1,4 +1,5 @@
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -25,14 +26,17 @@ def test_empty_database_keeps_suji_map_without_collection_controls(tmp_path, mon
     assert deck["mapStyle"]
     assert not any("데이터 관리" in tab.label for tab in app.tabs)
     assert not any(button.key == "request_collection" for button in app.button)
-    assert app.segmented_control(key="area_unit").value == "㎡"
-    app.segmented_control(key="area_unit").set_value("평").run()
-    assert not app.exception
-    assert app.slider(key="area_filter_pyeong").value == (0.0, 60.5)
-    assert app.session_state["_area_filter_m2"][1] == 200.0
+    assert app.segmented_control(key="area_unit").value == "평"
+    assert app.slider(key="area_filter_pyeong").value == (20.0, 40.0)
+    assert app.slider(key="price_filter").value == (10.0, 30.0)
+    assert app.selectbox(key="listing_freshness").value is None
+    assert app.date_input(key="period_41465").value == (
+        date.today() - timedelta(days=365), date.today())
     app.segmented_control(key="area_unit").set_value("㎡").run()
     assert not app.exception
-    assert app.slider(key="area_filter_m2").value == (0, 200)
+    assert app.slider(key="area_filter_m2").value == (66, 132)
+    app.segmented_control(key="area_unit").set_value("평").run()
+    assert app.slider(key="area_filter_pyeong").value == (20.0, 40.0)
     with connect(tmp_path / "estate.sqlite3") as conn:
         assert conn.execute("SELECT COUNT(*) FROM collection_jobs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM collection_targets").fetchone()[0] == 0

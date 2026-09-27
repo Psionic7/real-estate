@@ -123,6 +123,7 @@ def test_stale_future_and_other_sources(database):
     _, listings = load_data(database)
     assert len(listings) == 4
     assert len(active_listings(listings, now=now)) == 2
+    assert len(active_listings(listings, freshness_days=None, now=now)) == 3
 
 
 @pytest.mark.parametrize("changes", [dict(price_man=-1), dict(price_man="NaN"), dict(price_man="1.5"),
