@@ -63,7 +63,8 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     replace_trade_partition(path, "41465", "202601", [row])
     app = AppTest.from_file(str(APP), default_timeout=30).run()
     assert not app.exception
-    assert app.metric[1].value == "1건"
+    map_summary = next(item.value for item in app.get("html") if 'class="map-summary"' in item.value)
+    assert "최근 실거래</span><strong>1건" in map_summary
     summary = next(table.value for table in app.dataframe if "아파트" in table.value.columns)
     assert len(summary) == 1
     assert summary.iloc[0]["아파트"] == "테스트단지"
@@ -85,5 +86,6 @@ def test_unlocated_real_trades_remain_in_stats_and_empty_search_keeps_map(tmp_pa
     assert any("좌표가 확인된 단지가 없습니다" in message.value for message in app.info)
     app.text_input(key="search").set_value("NO SUCH APARTMENT").run()
     assert not app.exception
-    assert app.metric[1].value == "0건"
+    map_summary = next(item.value for item in app.get("html") if 'class="map-summary"' in item.value)
+    assert "최근 실거래</span><strong>0건" in map_summary
     assert len(app.get("deck_gl_json_chart")) == 1

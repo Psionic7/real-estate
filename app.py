@@ -1,11 +1,13 @@
 import json
 from datetime import date, timedelta
+from html import escape
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
 from estate.analytics import (active_listings, apartment_stats, apartment_sample, comparable_gap, export_csv, filter_common,
-                              latest_deal_date, load_data, load_map_trades, map_price_points,
+                              latest_deal_date, load_data, load_map_trades, map_price_points, monthly_stats,
                               within_radius)
 from estate.area import area_label, to_display_area, to_square_metres
 from estate.config import db_path
@@ -44,14 +46,47 @@ def show_table(frame, listing=False, key="export", area_unit="㎡"):
 
 APP_CSS = """
 <style>
-.block-container {max-width: 1540px; padding-top: 1.35rem; padding-bottom: 2rem;}
-.app-hero {display:flex; justify-content:space-between; align-items:flex-end; gap:24px;
-  padding: 14px 4px 20px;}
-.app-kicker {color:#087f8c; font-size:.76rem; font-weight:800; letter-spacing:.14em;}
-.app-title {margin:5px 0 3px; color:#10233e; font-size:2.35rem; font-weight:880; letter-spacing:-.055em;}
-.app-copy {color:#66758a; font-size:.97rem;}
+[data-testid="stAppViewContainer"] {background:#eef2f6;}
+[data-testid="stSidebar"] {min-width:390px; width:390px; background:#fff;
+  border-right:1px solid #dfe5ec; box-shadow:8px 0 30px rgba(21,38,61,.08);}
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] {padding-top:0;}
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {gap:.65rem;}
+.block-container {max-width:none; padding: 2.15rem 1rem 2rem;}
+.side-brand {margin:-1rem -1rem .35rem; padding:22px 20px 18px; color:#fff;
+  background:linear-gradient(135deg,#102a43 0%,#0c6872 62%,#15909a 100%);
+  box-shadow:0 12px 28px rgba(12,70,84,.2);}
+.side-brand-kicker {font-size:.69rem; font-weight:800; letter-spacing:.17em; opacity:.72;}
+.side-brand-title {margin:6px 0 2px; font-size:1.55rem; font-weight:880; letter-spacing:-.04em;}
+.side-brand-copy {font-size:.81rem; opacity:.78;}
+.region-panel {margin:2px 0 4px; padding:18px; border:1px solid #e1e6ed; border-radius:18px;
+  background:#fff; box-shadow:0 8px 24px rgba(25,44,70,.06);}
+.region-panel-label {color:#7a8798; font-size:.72rem; font-weight:750; letter-spacing:.08em;}
+.region-panel-title {margin:4px 0 14px; color:#12263f; font-size:1.22rem; font-weight:860;}
+.region-metrics {display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.region-metric {padding:12px; border-radius:13px; background:#f4f7fa;}
+.region-metric span {display:block; color:#7a8798; font-size:.69rem; font-weight:700;}
+.region-metric strong {display:block; margin-top:4px; color:#0c6872; font-size:1.13rem;}
+.region-rank {display:flex; align-items:center; gap:10px; padding:9px 2px;
+  border-bottom:1px solid #edf0f4;}
+.region-rank:last-child {border-bottom:0;}
+.region-rank-no {display:flex; width:25px; height:25px; align-items:center; justify-content:center;
+  border-radius:8px; color:#fff; background:#0f7b83; font-size:.72rem; font-weight:850;}
+.region-rank-name {min-width:0; flex:1; color:#172b4d; font-size:.83rem; font-weight:760;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.region-rank-meta {color:#718096; font-size:.72rem; white-space:nowrap;}
+.map-hero {display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 4px 12px;}
+.map-hero-kicker {color:#0f7b83; font-size:.7rem; font-weight:850; letter-spacing:.14em;}
+.map-hero-title {margin:3px 0 2px; color:#10233e; font-size:1.72rem; font-weight:880; letter-spacing:-.045em;}
+.map-hero-copy {color:#69788b; font-size:.86rem;}
+.map-hero-badge {padding:9px 13px; border:1px solid #d8e1e8; border-radius:999px;
+  color:#365066; background:#fff; font-size:.76rem; font-weight:750; white-space:nowrap;}
+.map-summary {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:4px 0 10px;}
+.map-summary-item {display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  padding:10px 13px; border:1px solid #dbe2e9; border-radius:12px; background:rgba(255,255,255,.78);}
+.map-summary-item span {color:#65758a; font-size:.76rem; font-weight:700;}
+.map-summary-item strong {color:#10233e; font-size:1.05rem; font-weight:850; white-space:nowrap;}
 .map-legend {display:flex; flex-wrap:wrap; gap:16px; align-items:center; color:#637083;
-  font-size:.82rem; margin:2px 0 10px;}
+  font-size:.78rem; margin:2px 0 8px;}
 .legend-dot {display:inline-block; width:14px; height:11px; margin-right:6px; border-radius:3px;
   background:#087f8c; vertical-align:-1px;}
 .legend-ring {display:inline-block; width:14px; height:11px; margin-right:6px; background:#ab5d1c;
@@ -62,7 +97,13 @@ APP_CSS = """
   align-items:center; text-align:center; padding:30px; border:1px dashed #cbd5e1; border-radius:22px;
   color:#718096; background:rgba(255,255,255,.55);}
 .selection-empty strong {color:#10233e; font-size:1.1rem; margin:10px 0 5px;}
-@media (max-width: 760px) {.app-title{font-size:1.85rem}.app-hero{align-items:flex-start;flex-direction:column}}
+div[data-testid="stDeckGlJsonChart"] {border:1px solid #dbe2e9; border-radius:18px;
+  overflow:hidden; box-shadow:0 12px 32px rgba(24,43,68,.11);}
+@media (max-width: 900px) {
+  [data-testid="stSidebar"] {min-width:330px; width:330px;}
+  .map-hero-title{font-size:1.4rem}.map-hero-badge{display:none}
+  .map-summary {grid-template-columns:1fr;}
+}
 </style>
 """
 
@@ -94,6 +135,55 @@ def toggle_favorite(item):
 
 def remove_favorite(value):
     save_favorite_ids([item for item in load_favorite_ids() if item != value])
+
+
+def render_region_overview(trades, region_label):
+    """Compact regional pulse for the fixed map-side panel."""
+    st.html(f'<section class="region-panel"><div class="region-panel-label">REGION PULSE</div>'
+            f'<div class="region-panel-title">{escape(str(region_label))}</div></section>')
+    if trades.empty:
+        st.caption("선택 지역의 최근 실거래가 없습니다.")
+        return
+    monthly = monthly_stats(trades).tail(36)
+    latest = monthly.iloc[-1]
+    st.html(
+        '<div class="region-metrics">'
+        f'<div class="region-metric"><span>{escape(str(latest["계약월"]))} 평당 중위가</span>'
+        f'<strong>{latest["평당중위가격(만원)"]:,.0f}만원</strong></div>'
+        f'<div class="region-metric"><span>{escape(str(latest["계약월"]))} 거래량</span>'
+        f'<strong>{int(latest["거래량"]):,}건</strong></div></div>')
+
+    chart = alt.layer(
+        alt.Chart(monthly).mark_area(color="#d8eef0", opacity=.85).encode(
+            x=alt.X("계약월:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=54, tickCount=4)),
+            y=alt.Y("거래량:Q", title=None, axis=None),
+            tooltip=["계약월:N", "거래량:Q"],
+        ),
+        alt.Chart(monthly).mark_line(color="#0d747d", strokeWidth=3,
+                                     point={"filled": True, "size": 35}).encode(
+            x=alt.X("계약월:N", title=None),
+            y=alt.Y("평당중위가격(만원):Q", title=None, axis=alt.Axis(format="~s"),
+                    scale=alt.Scale(zero=False)),
+            tooltip=["계약월:N", alt.Tooltip("평당중위가격(만원):Q", format=",.0f"), "거래량:Q"],
+        ),
+    ).resolve_scale(y="independent").properties(height=155)
+    st.altair_chart(chart)
+
+    last_day = pd.to_datetime(trades["deal_date"]).max()
+    cutoff = (last_day.date() - timedelta(days=92)).isoformat()
+    recent = trades[trades["deal_date"] >= cutoff]
+    ranked = apartment_stats(recent).head(5)
+    st.markdown("**최근 3개월 아파트 거래 순위**")
+    if ranked.empty:
+        st.caption("순위를 계산할 거래가 없습니다.")
+        return
+    rows = []
+    for rank, row in enumerate(ranked.itertuples(), start=1):
+        rows.append(
+            f'<div class="region-rank"><span class="region-rank-no">{rank}</span>'
+            f'<span class="region-rank-name">{escape(str(row.apartment))}</span>'
+            f'<span class="region-rank-meta">{escape(str(row.dong))} · {row.count:,}건</span></div>')
+    st.html('<div class="region-panel">' + "".join(rows) + "</div>")
 
 
 def render_selected_apartment(item, map_trades, live_listings, area_unit="㎡"):
@@ -143,13 +233,13 @@ def render_selected_apartment(item, map_trades, live_listings, area_unit="㎡"):
 
 
 st.html(APP_CSS)
-st.sidebar.title("집의 흐름")
-st.sidebar.caption("MAP-BASED APARTMENT INSIGHT")
+st.sidebar.html(
+    '<section class="side-brand"><div class="side-brand-kicker">KOREA APARTMENT MAP</div>'
+    '<div class="side-brand-title">집의 흐름</div>'
+    '<div class="side-brand-copy">지도에서 찾고, 관심 단지는 깊게 분석하세요.</div></section>')
 path = db_path()
 initialize(path)
 load_seed_geocodes(path)
-if st.sidebar.button("새로고침", icon=":material/refresh:", width="stretch"):
-    st.rerun()
 
 LABELS.update({r["region_code"]: r["display_name"] for r in targets(path)})
 with connect(path) as conn:
@@ -159,14 +249,16 @@ regions = sorted(stored_regions | {DEFAULT_REGION})
 region = st.sidebar.selectbox("지도 지역", ["전체"] + regions,
                               index=regions.index(DEFAULT_REGION) + 1,
                               format_func=lambda r: LABELS.get(r, r), key="region")
+query = st.sidebar.text_input("아파트·주소 검색", placeholder="단지명 또는 법정동 검색", key="search",
+                              icon=":material/search:")
+region_overview = st.sidebar.container()
 area_unit = st.sidebar.segmented_control(
     "전용면적 표시", ["㎡", "평"], default="평", required=True, key="area_unit",
     help="전용면적 기준 1평 = 3.305785㎡입니다. 공급면적 기준 평형과 다릅니다.",
 )
-query = st.sidebar.text_input("아파트·주소 검색", placeholder="예: 현대성우, 풍덕천동", key="search")
 latest = latest_deal_date(path, region)
 last_date = date.fromisoformat(latest) if latest else date.today()
-with st.sidebar.expander("상세 필터", expanded=True):
+with st.sidebar.expander("지도 상세 필터", expanded=False, icon=":material/tune:"):
     period = st.date_input("실거래 계약 기간", (last_date - timedelta(days=365), last_date), key=f"period_{region}")
     slider_key = "area_filter_pyeong" if area_unit == "평" else "area_filter_m2"
     previous_unit = st.session_state.get("_area_filter_unit")
@@ -193,6 +285,8 @@ with st.sidebar.expander("상세 필터", expanded=True):
         key="listing_freshness",
         help="제한 없음은 수집 시점과 관계없이 현재 상태가 활성인 매물을 모두 표시합니다.",
     )
+if st.sidebar.button("데이터 새로고침", icon=":material/refresh:", width="stretch"):
+    st.rerun()
 
 start_date, end_date = (period[0].isoformat(), period[1].isoformat()) if len(period) == 2 else (None, None)
 trades, listings = load_data(path, region, start_date, end_date)
@@ -201,6 +295,12 @@ live = active_listings(listings, freshness)
 filtered_trades = filter_common(trades, region, area, price, query)
 filtered_listings = filter_common(live, region, area, price, query)
 map_trades = filter_common(load_map_trades(path, region), region, area, price, query)
+
+trend_start = (last_date - timedelta(days=1095)).isoformat()
+region_trades, _ = load_data(path, region, trend_start, last_date.isoformat())
+region_trades = region_trades[region_trades["cancelled"] == 0].copy()
+with region_overview:
+    render_region_overview(region_trades, LABELS.get(region, region))
 
 if len(period) != 2:
     st.warning("실거래 기간의 시작일과 종료일을 모두 선택하세요.")
@@ -226,10 +326,11 @@ st.sidebar.metric("관심 단지", f"{len(favorite_ids)}개")
 st.sidebar.caption("관심 단지는 현재 브라우저 주소에 저장됩니다. 최대 20개까지 비교할 수 있습니다.")
 
 st.html(f"""
-<header class="app-hero">
-  <div><div class="app-kicker">KOREA APARTMENT MAP</div>
-  <div class="app-title">지도에서 찾고, 관심 단지만 깊게</div>
-  <div class="app-copy">{LABELS.get(region, region)}의 실거래가와 현재 매물을 한곳에서 비교하세요.</div></div>
+<header class="map-hero">
+  <div><div class="map-hero-kicker">LIVE APARTMENT EXPLORER</div>
+  <div class="map-hero-title">{escape(str(LABELS.get(region, region)))} 아파트 지도</div>
+  <div class="map-hero-copy">실거래가와 현재 매물을 지도에서 비교하고 관심 단지로 저장하세요.</div></div>
+  <div class="map-hero-badge">최근 데이터 {escape(str(last_date))}</div>
 </header>
 """)
 
@@ -238,10 +339,13 @@ map_tab, watch_tab, market_tab = st.tabs(
 
 with map_tab:
     points = map_price_points(map_trades, REGION_VIEWS, filtered_listings)
-    top_a, top_b, top_c = st.columns(3, border=True)
-    top_a.metric("지도 아파트", f"{len(points):,}개")
-    top_b.metric("최근 실거래", f"{len(map_trades):,}건")
-    top_c.metric("활성 매물", f"{len(filtered_listings):,}건")
+    st.html(
+        '<div class="map-summary">'
+        f'<div class="map-summary-item"><span>지도 아파트</span><strong>{len(points):,}개</strong></div>'
+        f'<div class="map-summary-item"><span>최근 실거래</span><strong>{len(map_trades):,}건</strong></div>'
+        f'<div class="map-summary-item"><span>활성 매물</span><strong>{len(filtered_listings):,}건</strong></div>'
+        '</div>'
+    )
     if not points and (len(map_trades) or len(filtered_listings)):
         st.info("현재 조건에 맞는 아파트 중 좌표가 확인된 단지가 없습니다.")
     elif not points:
@@ -252,7 +356,7 @@ with map_tab:
     st.html('<div class="map-legend"><span><i class="legend-dot"></i>청록 · 최근 실거래</span>'
             '<span><i class="legend-history"></i>회청 · 최근 거래월</span>'
             '<span><i class="legend-ring"></i>주황 · 매물 호가</span></div>')
-    event = st.pydeck_chart(housing_deck(points, region, show_labels, area_unit), height=650,
+    event = st.pydeck_chart(housing_deck(points, region, show_labels, area_unit), height=760,
                             on_select="rerun", selection_mode="single-object",
                             key=f"housing_map_{region}_{query}")
     selected = [item for group in event.selection.get("objects", {}).values() for item in group]
