@@ -9,6 +9,7 @@ from estate.baseline import package_database
 from estate.collection_ui import render_archive, render_manual_collection, render_target_settings
 from estate.config import (db_path, juso_address_search_key, juso_coordinate_search_key,
                            kakao_key, service_key)
+from estate.complexes import sync_apartment_complexes
 from estate.db import connect, initialize
 from estate.geocode import geocode_pending, geocode_pending_arcgis, load_seed_geocodes
 from estate.juso import collect_address_lookups
@@ -95,7 +96,8 @@ elif page == "데이터 품질·매물":
                     else:
                         first = 0
                     second, unresolved = geocode_pending_arcgis(path, limit, region_options[region_label])
-                    st.success(f"좌표 저장 {first + second}건 · 미확정 {unresolved}건")
+                    complex_count = sync_apartment_complexes(path, region_options[region_label])
+                    st.success(f"좌표 저장 {first + second}건 · 미확정 {unresolved}건 · 아파트 {complex_count}개 갱신")
                 except Exception:
                     st.error("좌표 조회에 실패했습니다. 연결 상태와 제공처 응답을 확인하세요.")
     with st.expander("현재 매물 CSV·JSON 가져오기"):
@@ -121,15 +123,16 @@ elif page == "데이터 품질·매물":
     st.dataframe(runs, hide_index=True)
 else:
     st.subheader("공개 앱용 데이터 스냅샷")
-    st.caption("로컬 DB에서 실거래·매물·좌표만 복사합니다. 수집 작업·API 원문·인증정보는 공개 파일에 넣지 않습니다.")
+    st.caption("로컬 DB에서 실거래·매물·좌표·아파트 기본정보를 복사합니다. 수집 작업·API 원문·인증정보는 공개 파일에 넣지 않습니다.")
     with connect(path) as conn:
         counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                  for table in ("trades", "listing_snapshots", "geocodes")}
+                  for table in ("trades", "listing_snapshots", "geocodes", "apartment_complexes")}
         active = conn.execute("SELECT COUNT(*) FROM collection_jobs WHERE status='running'").fetchone()[0]
-    a, b, c = st.columns(3)
+    a, b, c, d = st.columns(4)
     a.metric("실거래", f"{counts['trades']:,}건")
     b.metric("매물 이력", f"{counts['listing_snapshots']:,}건")
     c.metric("좌표", f"{counts['geocodes']:,}개")
+    d.metric("아파트 기본정보", f"{counts['apartment_complexes']:,}개")
     if active:
         st.warning("수집 작업이 실행 중입니다. 완료 후 스냅샷을 만드세요.")
     if st.button("배포용 스냅샷 생성", type="primary", disabled=bool(active)):

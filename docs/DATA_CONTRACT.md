@@ -69,6 +69,7 @@ CSV는 UTF-8(BOM 허용), 첫 행은 아래 영문 열 이름. JSON은 같은 �
 | trades | 실거래 현재 수집본. 정수 id, 지역·월·출처 범위로 교체, raw_json 보존 |
 | listing_snapshots | 관측시각별 가격·상태. UNIQUE(source, listing_id, observed_at) |
 | geocodes | address 기본키, 좌표·provider·updated_at |
+| apartment_complexes | 지역·동·주소·단지명 기본키, 좌표·준공연도·면적 범위·거래기간·거래수 |
 | collection_runs | 시작/종료 시각, 범위, 성공/실패/진행, 반영 건수 |
 | metadata | key/value; 관심 지역 초기 설정 여부 등 운영 메타데이터 |
 

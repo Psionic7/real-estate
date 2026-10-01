@@ -211,4 +211,4 @@ def test_schema_upgrade_keeps_existing_trades(scheduled_db):
     initialize(scheduled_db)
     with connect(scheduled_db) as conn:
         assert conn.execute("SELECT value FROM metadata WHERE key='preserve'").fetchone()[0] == "yes"
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4

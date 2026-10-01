@@ -38,6 +38,19 @@ CREATE TABLE IF NOT EXISTS geocodes (
     address TEXT PRIMARY KEY, latitude REAL NOT NULL, longitude REAL NOT NULL,
     provider TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS apartment_complexes (
+    id INTEGER PRIMARY KEY,
+    region_code TEXT NOT NULL, dong TEXT NOT NULL,
+    apartment TEXT NOT NULL, address TEXT NOT NULL,
+    latitude REAL, longitude REAL, build_year INTEGER,
+    min_area_m2 REAL, max_area_m2 REAL,
+    first_deal_date TEXT, last_deal_date TEXT,
+    trade_count INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE(region_code,dong,address,apartment)
+);
+CREATE INDEX IF NOT EXISTS complexes_region ON apartment_complexes(region_code,apartment);
+CREATE INDEX IF NOT EXISTS complexes_address ON apartment_complexes(address);
 CREATE TABLE IF NOT EXISTS address_lookups (
     address TEXT PRIMARY KEY, status TEXT NOT NULL,
     matched_address_json TEXT, response_json TEXT NOT NULL,
@@ -107,7 +120,7 @@ def initialize(path):
         columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_targets)")}
         if "display_name" not in columns:
             conn.execute("ALTER TABLE collection_targets ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
-        conn.execute("PRAGMA user_version=3")
+        conn.execute("PRAGMA user_version=4")
 
 
 TRADE_FIELDS = ("region_code", "deal_month", "apartment", "address", "dong", "deal_date",

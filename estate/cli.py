@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 from estate.config import db_path, juso_address_search_key, kakao_key, service_key
+from estate.complexes import sync_apartment_complexes
 from estate.db import backup, connect, initialize
 from estate.baseline import build_baseline, package_database
 from estate.geocode import geocode_pending, geocode_pending_arcgis
@@ -66,6 +67,7 @@ def main():
             for month in months_between(args.start, args.end):
                 count = collect(path, service_key(), args.region, month, args.region_name)
                 print(f"{args.region}/{month}: {count} rows")
+            print(f"Apartment complexes: {sync_apartment_complexes(path, args.region)}")
         elif args.command == "import-listings":
             print(f"Inserted: {import_rows(path, parse_payload(args.file.read_bytes(), args.file.suffix))}")
         elif args.command == "fetch-listings":
@@ -78,6 +80,7 @@ def main():
             if kakao_key():
                 kakao_matched, _ = geocode_pending(path, kakao_key(), args.limit)
             arcgis_matched, unresolved = geocode_pending_arcgis(path, args.limit)
+            sync_apartment_complexes(path)
             print(f"Matched/unresolved: {kakao_matched + arcgis_matched}/{unresolved}")
         elif args.command == "search-addresses":
             if not 1 <= args.limit <= 10000:

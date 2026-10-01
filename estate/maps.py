@@ -39,14 +39,39 @@ def _marker_details(point):
     return headline + "\n" + detail, [10, 97, 107, 255], [245, 255, 254, 250]
 
 
-def housing_deck(points, region, show_labels=True, area_unit="㎡"):
+def _background_details(complex_):
+    name = " ".join(str(complex_.get("apartment") or "아파트").split())
+    if len(name) > 15:
+        name = f"{name[:14]}…"
+    year = complex_.get("build_year")
+    year_text = f"{int(year)}년" if year is not None else "준공연도 미상"
+    first = complex_.get("first_deal_date") or "—"
+    last = complex_.get("last_deal_date") or "—"
+    complex_["background_label"] = name
+    complex_["kind"] = "저장된 아파트 기본정보"
+    complex_["summary"] = (
+        f"{year_text} · 저장된 실거래 {int(complex_.get('trade_count') or 0):,}건"
+        f"\n거래 기록 {first}~{last}"
+    )
+    complex_["area_text"] = format_area_range(
+        complex_.get("min_area"), complex_.get("max_area"), complex_.get("area_unit", "㎡"))
+    complex_["average_price"] = None
+    complex_["listing_count"] = 0
+    complex_["period_kind"] = "단지 기본정보"
+    complex_["period"] = f"{first}~{last}"
+    return complex_
+
+
+def housing_deck(points, region, show_labels=True, area_unit="㎡", complexes=None,
+                 show_complexes=True):
     """Render a basemap even with no geocoded properties or no matching trades."""
-    if points:
+    camera_points = points or complexes or []
+    if camera_points:
         # Use all available points for the camera, independent of marker truncation.
         import pandas as pd
 
-        lat = float(pd.Series([p["lat"] for p in points]).median())
-        lon = float(pd.Series([p["lon"] for p in points]).median())
+        lat = float(pd.Series([p["lat"] for p in camera_points]).median())
+        lon = float(pd.Series([p["lon"] for p in camera_points]).median())
         zoom = 12 if region != "전체" else 7
     else:
         lat, lon, zoom = REGION_VIEWS.get(region, (36.3, 127.8, 7))
@@ -56,12 +81,36 @@ def housing_deck(points, region, show_labels=True, area_unit="㎡"):
                 if "min_area" in point and "max_area" in point else point.get("area_text", "면적 미상"))
         shown.append(dict(point, area_text=area))
     layers = []
+    if show_complexes and complexes:
+        foreground = {(str(p.get("region_code")), str(p.get("dong")), str(p.get("address")),
+                       str(p.get("apartment"))) for p in shown}
+        background = []
+        for item in complexes[:10000]:
+            key = (str(item.get("region_code")), str(item.get("dong")), str(item.get("address")),
+                   str(item.get("apartment")))
+            if key in foreground:
+                continue
+            background.append(_background_details(dict(item, area_unit=area_unit)))
+        if background:
+            layers.append(pdk.Layer(
+                "TextLayer", id="apartment-background", data=background,
+                get_position="[lon, lat]", get_text="background_label", get_size=10,
+                get_color=[62, 78, 99, 220], get_background_color=[255, 255, 255, 205],
+                get_text_anchor="'middle'", get_alignment_baseline="'center'",
+                background=True, background_padding=[5, 3], billboard=True,
+                font_family="'Malgun Gothic'", font_weight=650,
+                character_set="'auto'", pickable=True, auto_highlight=True,
+                extensions=[{"@@type": "CollisionFilterExtension"}], collision_enabled=True,
+                collision_group="apartment-labels", get_collision_priority=1,
+                collision_test_props={"sizeScale": 1.2},
+            ))
     if show_labels:
         if shown:
             cards = []
             for point in shown:
                 label, color, background = _marker_details(point)
                 cards.append(dict(point, marker_label=label,
+                                  priority=10000 + int(point.get("priority") or 0),
                                   marker_text_color=color, marker_background=background))
             layers.append(pdk.Layer(
                 "TextLayer", id="apartment-cards", data=cards,
@@ -73,7 +122,7 @@ def housing_deck(points, region, show_labels=True, area_unit="㎡"):
                 character_set="'auto'",
                 pickable=True, auto_highlight=True,
                 extensions=[{"@@type": "CollisionFilterExtension"}], collision_enabled=True,
-                collision_group="apartment-cards", get_collision_priority="priority",
+                collision_group="apartment-labels", get_collision_priority="priority",
                 collision_test_props={"sizeScale": 1.35},
             ))
     elif shown:

@@ -182,6 +182,9 @@ def execute_job(path, job, collector=collect):
             messages.append(f"좌표 자동 보강 {matched + public_matched}건 · 미확정 {unresolved}건")
         except Exception:
             messages.append("좌표 자동 보강 실패")
+        from estate.complexes import sync_apartment_complexes
+        complex_count = sync_apartment_complexes(path, job["region_code"])
+        messages.append(f"아파트 기본정보 {complex_count}개 갱신")
         with connect(path) as conn:
             conn.execute("UPDATE collection_jobs SET status='success',finished_at=?,current_month='',message=? WHERE id=?",
                          (now_iso(), " · ".join(messages), job["id"]))

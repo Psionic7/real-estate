@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from estate.config import api_endpoint, service_key
+from estate.complexes import sync_apartment_complexes
 from estate.db import compact_api_archive, connect, initialize, now_iso
 from estate.molit import collect, months_between
 from estate.scheduler import DEFAULT_TARGETS, ensure_defaults
@@ -47,6 +48,7 @@ def build_baseline(path, start="200001", end=None, reporter=print):
                      "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                      (json.dumps({"start": start, "end": end, "completed_at": now_iso()},
                                  ensure_ascii=False),))
+    sync_apartment_complexes(path)
     compact_api_archive(path)
 
 

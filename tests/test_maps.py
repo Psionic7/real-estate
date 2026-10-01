@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from estate.db import connect, initialize, replace_trade_partition
+from estate.complexes import load_apartment_complexes, sync_apartment_complexes
 from estate.geocode import geocode_pending, geocode_pending_arcgis, load_seed_geocodes
 from estate.maps import housing_deck
 from estate.molit import normalize
@@ -34,6 +35,31 @@ def test_map_uses_real_points_and_preserves_basemap_when_empty():
     assert empty["mapProvider"] == "carto"
     assert empty["mapStyle"]
     assert all(not layer["data"] for layer in empty["layers"])
+
+
+def test_apartment_catalogue_is_persisted_and_rendered_behind_price_cards(tmp_path):
+    path = tmp_path / "estate.sqlite3"
+    initialize(path)
+    item = dict(aptNm="배경단지", umdNm="풍덕천동", jibun="321", dealYear="2026",
+                dealMonth="1", dealDay="5", excluUseAr="84.9", dealAmount="100,000",
+                floor="12", buildYear="2015")
+    replace_trade_partition(path, "41465", "202601", [
+        normalize(item, "41465", "202601", "경기도 용인시 수지구")])
+    with connect(path) as conn:
+        address = conn.execute("SELECT address FROM trades").fetchone()[0]
+        conn.execute("INSERT INTO geocodes VALUES(?,?,?,?,?)",
+                     (address, 37.32, 127.09, "test", "2026-10-01"))
+    assert sync_apartment_complexes(path, "41465") == 1
+    complexes = load_apartment_complexes(path, "41465")
+    assert complexes.iloc[0]["apartment"] == "배경단지"
+    assert complexes.iloc[0]["build_year"] == 2015
+    assert complexes.iloc[0]["trade_count"] == 1
+
+    deck = json.loads(housing_deck([], "41465", complexes=complexes.to_dict("records")).to_json())
+    assert deck["layers"][0]["id"] == "apartment-background"
+    marker = deck["layers"][0]["data"][0]
+    assert marker["background_label"] == "배경단지"
+    assert marker["kind"] == "저장된 아파트 기본정보"
 
 
 def test_geocode_selected_region_and_cache(tmp_path, monkeypatch):

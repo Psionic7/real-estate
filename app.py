@@ -11,6 +11,7 @@ from estate.analytics import (active_listings, apartment_stats, apartment_sample
                               within_radius)
 from estate.area import area_label, to_display_area, to_square_metres
 from estate.config import db_path
+from estate.complexes import ensure_apartment_complexes, load_apartment_complexes
 from estate.db import connect, initialize
 from estate.dashboard import render_dashboard, render_watchlist
 from estate.favorites import apartment_id, apartment_identity, filter_favorites, parse_favorites
@@ -93,6 +94,8 @@ APP_CSS = """
   border-radius:3px; vertical-align:-1px;}
 .legend-history {display:inline-block; width:14px; height:11px; margin-right:6px; background:#62758c;
   border-radius:3px; vertical-align:-1px;}
+.legend-apartment {display:inline-block; width:14px; height:11px; margin-right:6px; background:#fff;
+  border:1px solid #9ba8b7; border-radius:3px; vertical-align:-1px;}
 .selection-empty {min-height:150px; display:flex; flex-direction:column; justify-content:center;
   align-items:center; text-align:center; padding:30px; border:1px dashed #cbd5e1; border-radius:22px;
   color:#718096; background:rgba(255,255,255,.55);}
@@ -289,6 +292,12 @@ if st.sidebar.button("데이터 새로고침", icon=":material/refresh:", width=
     st.rerun()
 
 start_date, end_date = (period[0].isoformat(), period[1].isoformat()) if len(period) == 2 else (None, None)
+ensure_apartment_complexes(path, region)
+complexes = load_apartment_complexes(path, region)
+if query and not complexes.empty:
+    complex_mask = (complexes["apartment"].str.contains(query, regex=False, na=False)
+                    | complexes["address"].str.contains(query, regex=False, na=False))
+    complexes = complexes[complex_mask].copy()
 trades, listings = load_data(path, region, start_date, end_date)
 trades = trades[trades["cancelled"] == 0].copy()
 live = active_listings(listings, freshness)
@@ -320,6 +329,7 @@ if st.sidebar.checkbox("선택 단지 주변만 보기", key="radius_enabled"):
         filtered_trades = within_radius(filtered_trades, center["lat"], center["lon"], radius)
         filtered_listings = within_radius(filtered_listings, center["lat"], center["lon"], radius)
         map_trades = within_radius(map_trades, center["lat"], center["lon"], radius)
+        complexes = within_radius(complexes, center["lat"], center["lon"], radius)
 
 favorite_ids = load_favorite_ids()
 st.sidebar.metric("관심 단지", f"{len(favorite_ids)}개")
@@ -341,7 +351,7 @@ with map_tab:
     points = map_price_points(map_trades, REGION_VIEWS, filtered_listings)
     st.html(
         '<div class="map-summary">'
-        f'<div class="map-summary-item"><span>지도 아파트</span><strong>{len(points):,}개</strong></div>'
+        f'<div class="map-summary-item"><span>저장 아파트</span><strong>{len(complexes):,}개</strong></div>'
         f'<div class="map-summary-item"><span>최근 실거래</span><strong>{len(map_trades):,}건</strong></div>'
         f'<div class="map-summary-item"><span>활성 매물</span><strong>{len(filtered_listings):,}건</strong></div>'
         '</div>'
@@ -350,20 +360,24 @@ with map_tab:
         st.info("현재 조건에 맞는 아파트 중 좌표가 확인된 단지가 없습니다.")
     elif not points:
         st.info("현재 조건에 맞는 실거래 또는 매물 데이터가 없습니다. 지역과 검색 조건을 조정해 주세요.")
-    control, note = st.columns([1, 3], vertical_alignment="center")
-    show_labels = control.checkbox("단지명·가격 카드", value=True, key="map_labels")
-    note.caption("전용면적·평균 실거래가 또는 매물 호가 위에 단지명을 표시합니다. 카드를 누르면 거래 내역을 볼 수 있습니다.")
+    price_control, background_control, note = st.columns([1, 1, 2], vertical_alignment="center")
+    show_labels = price_control.checkbox("단지명·가격 카드", value=True, key="map_labels")
+    show_complexes = background_control.checkbox("아파트 배경", value=True, key="complex_background")
+    note.caption("저장된 단지는 옅은 이름표로, 조건에 맞는 단지는 가격 카드로 표시합니다.")
     st.html('<div class="map-legend"><span><i class="legend-dot"></i>청록 · 최근 실거래</span>'
             '<span><i class="legend-history"></i>회청 · 최근 거래월</span>'
-            '<span><i class="legend-ring"></i>주황 · 매물 호가</span></div>')
-    event = st.pydeck_chart(housing_deck(points, region, show_labels, area_unit), height=760,
+            '<span><i class="legend-ring"></i>주황 · 매물 호가</span>'
+            '<span><i class="legend-apartment"></i>흰색 · 저장 아파트</span></div>')
+    complex_points = complexes.to_dict("records")
+    event = st.pydeck_chart(housing_deck(points, region, show_labels, area_unit,
+                                         complex_points, show_complexes), height=760,
                             on_select="rerun", selection_mode="single-object",
                             key=f"housing_map_{region}_{query}")
     selected = [item for group in event.selection.get("objects", {}).values() for item in group]
     if selected:
         st.session_state["map_selected_apartment"] = selected[0]
     current = st.session_state.get("map_selected_apartment")
-    valid_ids = {apartment_id(point) for point in points}
+    valid_ids = {apartment_id(point) for point in [*points, *complex_points]}
     if current and apartment_id(current) not in valid_ids:
         current = None
         st.session_state.pop("map_selected_apartment", None)
