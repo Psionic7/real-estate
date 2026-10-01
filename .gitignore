@@ -221,6 +221,9 @@ __marimo__/
 api-key.txt
 일반인증키.txt
 엔드포인트.txt
+.env
+.env.*
+!.env.example
 
 # Runtime database is restored from the compressed baseline on first launch.
 data/estate.sqlite3
